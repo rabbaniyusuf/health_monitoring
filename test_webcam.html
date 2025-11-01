@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Webcam</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 25px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        .debug {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Test Webcam</h1>
+        
+        <div id="status" class="status info">
+            ℹ️ Klik tombol "Test Webcam" untuk memulai
+        </div>
+
+        <button onclick="testWebcam()">📹 Test Webcam</button>
+        <button onclick="checkSupport()">🔍 Cek Browser Support</button>
+        <button onclick="listDevices()">📱 List Devices</button>
+
+        <video id="webcam" autoplay muted></video>
+
+        <div id="debug" class="debug">
+=== DEBUG INFO ===
+Browser: Loading...
+HTTPS: Loading...
+getUserMedia: Loading...
+        </div>
+    </div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const debugDiv = document.getElementById('debug');
+        const video = document.getElementById('webcam');
+
+        function updateStatus(message, type = 'info') {
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = message;
+            log(message);
+        }
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugDiv.innerHTML += `\n[${timestamp}] ${message}`;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+
+        // Auto check on load
+        window.addEventListener('load', () => {
+            log('=== PAGE LOADED ===');
+            log('Browser: ' + navigator.userAgent);
+            log('Protocol: ' + window.location.protocol);
+            log('Host: ' + window.location.host);
+            
+            // Check HTTPS
+            if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                updateStatus('⚠️ WARNING: Webcam hanya bisa diakses via HTTPS atau localhost!', 'warning');
+            }
+            
+            checkSupport();
+        });
+
+        function checkSupport() {
+            log('=== CHECKING BROWSER SUPPORT ===');
+            
+            const checks = {
+                'navigator.mediaDevices': !!navigator.mediaDevices,
+                'getUserMedia': !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                'MediaRecorder': typeof MediaRecorder !== 'undefined',
+                'Secure Context': window.isSecureContext
+            };
+
+            let allSupported = true;
+            let checkResults = '✅ SUPPORT CHECK:\n';
+            
+            for (const [feature, supported] of Object.entries(checks)) {
+                const icon = supported ? '✅' : '❌';
+                checkResults += `${icon} ${feature}: ${supported}\n`;
+                log(`${icon} ${feature}: ${supported}`);
+                if (!supported) allSupported = false;
+            }
+
+            debugDiv.innerHTML = checkResults + debugDiv.innerHTML;
+
+            if (!allSupported) {
+                updateStatus('❌ Browser tidak support atau tidak secure context!', 'error');
+                return false;
+            }
+
+            updateStatus('✅ Browser support webcam!', 'success');
+            return true;
+        }
+
+        async function testWebcam() {
+            log('=== TESTING WEBCAM ===');
+            updateStatus('🔄 Meminta akses webcam...', 'info');
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                updateStatus('❌ Browser tidak support getUserMedia!', 'error');
+                log('ERROR: getUserMedia not available');
+                return;
+            }
+
+            try {
+                log('Requesting camera access...');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+
+                log('✅ Camera access granted!');
+                log('Stream ID: ' + stream.id);
+                log('Video tracks: ' + stream.getVideoTracks().length);
+                
+                const videoTrack = stream.getVideoTracks()[0];
+                log('Video track label: ' + videoTrack.label);
+                log('Video track settings: ' + JSON.stringify(videoTrack.getSettings(), null, 2));
+
+                video.srcObject = stream;
+                
+                updateStatus('✅ Webcam berhasil diakses dan ditampilkan!', 'success');
+                
+                // Log video element info
+                video.onloadedmetadata = () => {
+                    log('Video metadata loaded');
+                    log('Video dimensions: ' + video.videoWidth + 'x' + video.videoHeight);
+                };
+
+            } catch (error) {
+                log('❌ ERROR: ' + error.name);
+                log('Error message: ' + error.message);
+                log('Error stack: ' + error.stack);
+                
+                let errorMessage = '❌ Gagal mengakses webcam!<br><br>';
+                
+                switch(error.name) {
+                    case 'NotAllowedError':
+                    case 'PermissionDeniedError':
+                        errorMessage += '<strong>Izin Ditolak:</strong><br>';
+                        errorMessage += '1. Klik ikon kamera di address bar<br>';
+                        errorMessage += '2. Pilih "Always allow"<br>';
+                        errorMessage += '3. Refresh halaman';
+                        break;
+                    
+                    case 'NotFoundError':
+                    case 'DevicesNotFoundError':
+                        errorMessage += '<strong>Webcam Tidak Ditemukan:</strong><br>';
+                        errorMessage += '1. Cek apakah webcam terpasang<br>';
+                        errorMessage += '2. Cek device manager<br>';
+                        errorMessage += '3. Restart browser';
+                        break;
+                    
+                    case 'NotReadableError':
+                    case 'TrackStartError':
+                        errorMessage += '<strong>Webcam Sedang Digunakan:</strong><br>';
+                        errorMessage += '1. Tutup aplikasi lain yang pakai webcam<br>';
+                        errorMessage += '2. Restart browser<br>';
+                        errorMessage += '3. Restart komputer jika perlu';
+                        break;
+                    
+                    case 'OverconstrainedError':
+                        errorMessage += '<strong>Setting Tidak Didukung:</strong><br>';
+                        errorMessage += 'Webcam tidak support resolusi yang diminta';
+                        break;
+                    
+                    case 'TypeError':
+                        errorMessage += '<strong>Browser Error:</strong><br>';
+                        errorMessage += 'Browser tidak support atau versi lama<br>';
+                        errorMessage += 'Gunakan Chrome/Edge/Firefox versi terbaru';
+                        break;
+                    
+                    default:
+                        errorMessage += '<strong>Error:</strong> ' + error.message;
+                }
+                
+                updateStatus(errorMessage, 'error');
+            }
+        }
+
+        async function listDevices() {
+            log('=== LISTING DEVICES ===');
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                updateStatus('❌ Browser tidak support enumerateDevices', 'error');
+                return;
+            }
+
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                
+                log('Total devices: ' + devices.length);
+                
+                let deviceList = '\n📱 AVAILABLE DEVICES:\n';
+                deviceList += '─────────────────────\n';
+                
+                let videoInputCount = 0;
+                let audioInputCount = 0;
+                
+                devices.forEach((device, index) => {
+                    const icon = device.kind === 'videoinput' ? '📹' : 
+                                device.kind === 'audioinput' ? '🎤' : '🔊';
+                    
+                    deviceList += `${icon} ${device.kind}\n`;
+                    deviceList += `   Label: ${device.label || 'Unknown Device'}\n`;
+                    deviceList += `   ID: ${device.deviceId.substring(0, 20)}...\n\n`;
+                    
+                    if (device.kind === 'videoinput') videoInputCount++;
+                    if (device.kind === 'audioinput') audioInputCount++;
+                });
+
+                deviceList += `\nSummary:\n`;
+                deviceList += `📹 Video Inputs: ${videoInputCount}\n`;
+                deviceList += `🎤 Audio Inputs: ${audioInputCount}\n`;
+                
+                log(deviceList);
+
+                if (videoInputCount === 0) {
+                    updateStatus('❌ Tidak ada webcam terdeteksi!', 'error');
+                } else {
+                    updateStatus(`✅ Ditemukan ${videoInputCount} webcam`, 'success');
+                }
+
+            } catch (error) {
+                log('❌ Error listing devices: ' + error.message);
+                updateStatus('❌ Gagal list devices: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
