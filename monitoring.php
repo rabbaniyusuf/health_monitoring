@@ -494,6 +494,9 @@ $conn->close();
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
+// PASTE KODE INI DI BAGIAN <script> monitoring.php
+// Ganti semua kode JavaScript yang lama dengan kode ini
+
 const patientId = <?= $patient_id ?>;
 let accelChart, gyroChart;
 let mediaRecorder;
@@ -812,8 +815,12 @@ console.log('✅ Charts initialized');
 
 async function fetchLatestData() {
     try {
+        console.log('Fetching data for patient:', patientId);
+        
         const response = await fetch(`api/get_latest.php?patient_id=${patientId}&limit=20`);
         const data = await response.json();
+        
+        console.log('Fetch response:', data);
         
         if (data.success && data.data.length > 0) {
             updateDashboard(data.data[0]);
@@ -821,6 +828,7 @@ async function fetchLatestData() {
             updateTable(data.data);
             updateStatus(true);
         } else {
+            console.warn('No data received or fetch failed');
             updateStatus(false);
         }
     } catch (error) {
@@ -830,9 +838,9 @@ async function fetchLatestData() {
 }
 
 function updateDashboard(latest) {
-    // Update nilai cards
-    document.getElementById('hrValue').textContent = latest.hr || '--';
-    document.getElementById('spo2Value').textContent = latest.spo2 || '--';
+    console.log('Updating dashboard with:', latest);
+    
+    // Update nilai cards Roll & Pitch
     document.getElementById('rollValue').textContent = latest.roll ? parseFloat(latest.roll).toFixed(1) : '--';
     document.getElementById('pitchValue').textContent = latest.pitch ? parseFloat(latest.pitch).toFixed(1) : '--';
     
@@ -898,8 +906,6 @@ function updateTable(dataArray) {
                 minute: '2-digit',
                 second: '2-digit'
             })}</td>
-            <td><strong>${row.hr}</strong></td>
-            <td><strong>${row.spo2}%</strong></td>
             <td>${parseFloat(row.roll).toFixed(1)}°</td>
             <td>${parseFloat(row.pitch).toFixed(1)}°</td>
             <td>${parseFloat(row.axG).toFixed(2)}</td>
