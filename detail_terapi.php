@@ -104,6 +104,14 @@ $conn->close();
             transition: all 0.3s;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
+            margin-right: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: #28a745;
         }
         .stats-grid {
             display: grid;
@@ -134,13 +142,6 @@ $conn->close();
             font-size: 12px;
             color: #666;
         }
-        .chart-container {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
         .data-table {
             background: white;
             border-radius: 15px;
@@ -168,27 +169,24 @@ $conn->close();
         tr:hover {
             background: #f8f9fa;
         }
-        .badge {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .badge-success { background: #d4edda; color: #155724; }
-        .badge-warning { background: #fff3cd; color: #856404; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <div>
                     <h2>📊 Detail Sesi Terapi</h2>
                     <p style="color: #666; margin-top: 10px;">
                         <strong><?= $session['nama'] ?></strong> | <?= $session['therapy_type'] ?>
                     </p>
                 </div>
-                <a href="terapi.php?patient_id=<?= $session['patient_id'] ?>" class="btn">← Kembali</a>
+                <div>
+                    <a href="grafik_terapi.php?patient_id=<?= $session['patient_id'] ?>" class="btn btn-success">
+                        📈 Lihat Grafik Perbandingan
+                    </a>
+                    <a href="terapi.php?patient_id=<?= $session['patient_id'] ?>" class="btn">← Kembali</a>
+                </div>
             </div>
         </div>
 
@@ -233,11 +231,6 @@ $conn->close();
             </div>
         </div>
 
-        <div class="chart-container">
-            <h3 style="margin-bottom: 20px;">📈 Grafik Gerakan Terapi</h3>
-            <canvas id="therapyChart" width="400" height="100"></canvas>
-        </div>
-
         <div class="data-table">
             <h3 style="margin-bottom: 20px;">📋 Data Gerakan Lengkap</h3>
             <table>
@@ -278,87 +271,5 @@ $conn->close();
             </table>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        // Prepare data for chart
-        const movementData = <?= json_encode($movements_result->fetch_all(MYSQLI_ASSOC)) ?>;
-        
-        const labels = movementData.map(m => {
-            const time = new Date(m.timestamp);
-            return time.toLocaleTimeString('id-ID');
-        });
-        
-        const rollData = movementData.map(m => parseFloat(m.roll));
-        const pitchData = movementData.map(m => parseFloat(m.pitch));
-        const axData = movementData.map(m => parseFloat(m.axG));
-        const ayData = movementData.map(m => parseFloat(m.ayG));
-        const azData = movementData.map(m => parseFloat(m.azG));
-
-        const ctx = document.getElementById('therapyChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Roll (°)',
-                        data: rollData,
-                        borderColor: '#f39c12',
-                        backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Pitch (°)',
-                        data: pitchData,
-                        borderColor: '#9b59b6',
-                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Accel X (G)',
-                        data: axData,
-                        borderColor: '#e74c3c',
-                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Accel Y (G)',
-                        data: ayData,
-                        borderColor: '#3498db',
-                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Accel Z (G)',
-                        data: azData,
-                        borderColor: '#1abc9c',
-                        backgroundColor: 'rgba(26, 188, 156, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                scales: {
-                    y: {
-                        beginAtZero: false
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
-                }
-            }
-        });
-    </script>
 </body>
 </html>

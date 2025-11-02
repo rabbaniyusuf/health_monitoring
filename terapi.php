@@ -43,6 +43,15 @@ $stmt->execute();
 $history_result = $stmt->get_result();
 $stmt->close();
 
+// Count total completed sessions
+$count_sql = "SELECT COUNT(*) as total FROM therapy_sessions WHERE patient_id = ? AND completion_status = 'completed'";
+$stmt = $conn->prepare($count_sql);
+$stmt->bind_param("i", $patient_id);
+$stmt->execute();
+$count_result = $stmt->get_result();
+$total_completed = $count_result->fetch_assoc()['total'];
+$stmt->close();
+
 $conn->close();
 ?>
 <!DOCTYPE html>
@@ -113,12 +122,20 @@ $conn->close();
             text-decoration: none;
             display: inline-block;
             transition: all 0.3s;
+            margin-right: 10px;
         }
         .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-danger { background: #dc3545; color: white; }
         .btn-warning { background: #ffc107; color: #333; }
+        .btn-info { background: #17a2b8; color: white; }
         .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
         
         .main-grid {
             display: grid;
@@ -370,7 +387,12 @@ $conn->close();
                         </span>
                     </div>
                 </div>
-                <div>
+                <div class="header-actions">
+                    <?php if ($total_completed > 0): ?>
+                        <a href="grafik_terapi.php?patient_id=<?= $patient_id ?>" class="btn btn-info">
+                            📈 Lihat Grafik (<?= $total_completed ?>)
+                        </a>
+                    <?php endif; ?>
                     <a href="index.php" class="btn btn-primary">← Kembali</a>
                 </div>
             </div>
@@ -432,6 +454,9 @@ $conn->close();
 
                 <div class="alert alert-info" id="therapyAlert">
                     💡 <strong>Tips:</strong> Pastikan sensor MPU6050 sudah terpasang di pergelangan tangan Anda sebelum memulai terapi.
+                    <br><br>
+                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>0 derajat (±2°)</strong>. 
+                    Ini menandakan lengan Anda telah diangkat ke posisi horizontal.
                 </div>
             </div>
 
@@ -450,7 +475,15 @@ $conn->close();
                     </div>
                     <div class="status-item">
                         <span class="status-label">Total Gerakan:</span>
-                        <span class="status-value" id="movementCount">0</span>
+                        <span class="status-value" id="movementCount" style="transition: all 0.3s;">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Pitch Saat Ini:</span>
+                        <span class="status-value" id="currentPitchDisplay">--°</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Status Deteksi:</span>
+                        <span class="status-value" id="detectionStatus" style="font-size: 14px; color: #999;">Menunggu...</span>
                     </div>
                 </div>
 
@@ -506,7 +539,14 @@ $conn->close();
 
         <!-- History Section -->
         <div class="card">
-            <h3 class="card-title">📜 Riwayat Terapi</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 class="card-title" style="margin-bottom: 0;">📜 Riwayat Terapi</h3>
+                <?php if ($total_completed > 0): ?>
+                    <a href="grafik_terapi.php?patient_id=<?= $patient_id ?>" class="btn btn-info" style="padding: 8px 20px; font-size: 13px;">
+                        📈 Lihat Grafik Lengkap
+                    </a>
+                <?php endif; ?>
+            </div>
             
             <?php if ($history_result->num_rows > 0): ?>
                 <table class="history-table">
@@ -534,7 +574,7 @@ $conn->close();
                                 </td>
                                 <td>
                                     <a href="detail_terapi.php?session_id=<?= $session['id'] ?>" class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
-                                        Detail
+                                        📋 Detail
                                     </a>
                                 </td>
                             </tr>
@@ -560,6 +600,13 @@ $conn->close();
         let selectedVideoId = null;
         let selectedVideoTitle = '';
         let chart = null;
+        
+        // Movement detection variables
+        let previousPitch = null;
+        let crossedZero = false;
+        let pitchThreshold = 7; // Toleransi ±2 derajat untuk deteksi 0 derajat
+        let lastMovementTime = 0;
+        let movementCooldown = 1000; // Cooldown 1 detik antar gerakan
 
         console.log('Therapy page loaded for patient:', patientId);
 
@@ -659,6 +706,9 @@ $conn->close();
                     sessionId = result.session_id;
                     startTime = Date.now();
                     movementCount = 0;
+                    previousPitch = null; // Reset pitch tracking
+                    crossedZero = false;
+                    lastMovementTime = 0;
 
                     document.getElementById('therapyStatus').classList.add('active');
                     document.getElementById('statusText').textContent = 'Aktif';
@@ -764,22 +814,37 @@ $conn->close();
 
                 if (data.success && data.data.length > 0) {
                     const latest = data.data[0];
+                    const currentPitch = parseFloat(latest.pitch);
 
                     // Update sensor values
-                    document.getElementById('rollValue').textContent = parseFloat(latest.roll).toFixed(1);
-                    document.getElementById('pitchValue').textContent = parseFloat(latest.pitch).toFixed(1);
+                    document.getElementById('rollValue').textContent = currentPitch.toFixed(1);
+                    document.getElementById('pitchValue').textContent = currentPitch.toFixed(1);
+                    document.getElementById('currentPitchDisplay').textContent = currentPitch.toFixed(1) + '°';
                     document.getElementById('axValue').textContent = parseFloat(latest.axG).toFixed(2);
                     document.getElementById('ayValue').textContent = parseFloat(latest.ayG).toFixed(2);
                     document.getElementById('azValue').textContent = parseFloat(latest.azG).toFixed(2);
                     document.getElementById('gxValue').textContent = parseFloat(latest.gx).toFixed(2);
                     document.getElementById('gyValue').textContent = parseFloat(latest.gy).toFixed(2);
                     document.getElementById('gzValue').textContent = parseFloat(latest.gz).toFixed(2);
+                    
+                    // Update detection status display
+                    const detectionElement = document.getElementById('detectionStatus');
+                    if (Math.abs(currentPitch) <= pitchThreshold) {
+                        detectionElement.textContent = '✅ Posisi 0° Terdeteksi!';
+                        detectionElement.style.color = '#28a745';
+                    } else if (Math.abs(currentPitch) < 10) {
+                        detectionElement.textContent = '⚠️ Mendekati 0°...';
+                        detectionElement.style.color = '#ffc107';
+                    } else {
+                        detectionElement.textContent = '⏳ Menunggu gerakan...';
+                        detectionElement.style.color = '#999';
+                    }
 
                     // Update chart
                     const time = new Date().toLocaleTimeString('id-ID');
                     chart.data.labels.push(time);
                     chart.data.datasets[0].data.push(parseFloat(latest.roll));
-                    chart.data.datasets[1].data.push(parseFloat(latest.pitch));
+                    chart.data.datasets[1].data.push(currentPitch);
 
                     // Keep only last 20 points
                     if (chart.data.labels.length > 20) {
@@ -790,12 +855,60 @@ $conn->close();
 
                     chart.update('none');
 
+                    // ==========================================
+                    // DETEKSI GERAKAN MENGANGKAT LENGAN
+                    // ==========================================
+                    const currentTime = Date.now();
+                    
+                    // Deteksi saat pitch melewati 0 derajat (dengan toleransi)
+                    if (previousPitch !== null) {
+                        // Cek apakah pitch berada di sekitar 0 derajat (±threshold)
+                        const isAtZero = Math.abs(currentPitch) <= pitchThreshold;
+                        
+                        // Cek apakah pitch sebelumnya tidak di 0 (untuk menghindari double count)
+                        const wasNotAtZero = Math.abs(previousPitch) > pitchThreshold;
+                        
+                        // Cek cooldown untuk menghindari gerakan terlalu cepat terhitung
+                        const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
+                        
+                        // Gerakan terdeteksi jika:
+                        // 1. Pitch sekarang di 0 derajat
+                        // 2. Pitch sebelumnya tidak di 0 (transisi)
+                        // 3. Cooldown sudah lewat
+                        if (isAtZero && wasNotAtZero && cooldownPassed && !crossedZero) {
+                            movementCount++;
+                            document.getElementById('movementCount').textContent = movementCount;
+                            
+                            // Visual feedback
+                            const countElement = document.getElementById('movementCount');
+                            countElement.style.color = '#28a745';
+                            countElement.style.transform = 'scale(1.3)';
+                            
+                            setTimeout(() => {
+                                countElement.style.color = '#667eea';
+                                countElement.style.transform = 'scale(1)';
+                            }, 300);
+                            
+                            crossedZero = true;
+                            lastMovementTime = currentTime;
+                            
+                            console.log(`✅ Gerakan terdeteksi! Total: ${movementCount} | Pitch: ${currentPitch.toFixed(2)}°`);
+                            
+                            // Play sound (optional)
+                            playBeep();
+                        }
+                        
+                        // Reset flag saat pitch menjauhi 0
+                        if (Math.abs(currentPitch) > pitchThreshold + 5) {
+                            crossedZero = false;
+                        }
+                    }
+                    
+                    // Simpan pitch sebelumnya
+                    previousPitch = currentPitch;
+
                     // Save to therapy_movements
                     await saveTherapyMovement(latest);
-
-                    // Increment movement count (simple detection based on significant change)
-                    movementCount++;
-                    document.getElementById('movementCount').textContent = movementCount;
                 }
             } catch (error) {
                 console.error('Error fetching therapy data:', error);
@@ -837,6 +950,29 @@ $conn->close();
             const secs = seconds % 60;
             return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         }
+        
+        // Sound feedback untuk gerakan terdeteksi
+        function playBeep() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800; // Frekuensi suara
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.1);
+            } catch (error) {
+                console.log('Audio not supported');
+            }
+        }
 
         // Resume therapy
         document.getElementById('btnPause').addEventListener('click', function() {
@@ -857,5 +993,3 @@ $conn->close();
             }
         });
     </script>
-</body>
-</html>
