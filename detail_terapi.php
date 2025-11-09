@@ -39,6 +39,12 @@ $stmt = $conn->prepare($movements_sql);
 $stmt->bind_param("i", $session_id);
 $stmt->execute();
 $movements_result = $stmt->get_result();
+
+// Store movements in array for chart
+$movements_array = [];
+while ($row = $movements_result->fetch_assoc()) {
+    $movements_array[] = $row;
+}
 $stmt->close();
 
 // Calculate statistics
@@ -117,6 +123,10 @@ $conn->close();
             background: #ffc107;
             color: #333;
         }
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -172,6 +182,32 @@ $conn->close();
         }
         tr:hover {
             background: #f8f9fa;
+        }
+        .chart-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -238,6 +274,27 @@ $conn->close();
             </div>
         </div>
 
+        <!-- Grafik Gerakan Terdeteksi -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <h3 class="chart-title">📈 Grafik Gerakan yang Terdeteksi (Roll & Pitch)</h3>
+                <button onclick="exportMovementChartPDF()" class="btn btn-info">
+                    📄 Export PDF
+                </button>
+            </div>
+            
+            <div class="alert-info">
+                ℹ️ <strong>Keterangan:</strong> Grafik ini menampilkan data Roll & Pitch hanya pada saat gerakan terdeteksi 
+                (ketika Pitch mencapai 0° ± 7°). Setiap titik pada grafik merepresentasikan 1 gerakan yang berhasil tercatat.
+            </div>
+
+            <canvas id="movementChart" width="400" height="200"></canvas>
+            
+            <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <strong>Total Gerakan Terdeteksi:</strong> <span id="totalDetectedMovements">0</span> gerakan
+            </div>
+        </div>
+
         <div class="data-table">
             <h3 style="margin-bottom: 20px;">📋 Data Gerakan Lengkap</h3>
             <table>
@@ -258,8 +315,7 @@ $conn->close();
                 <tbody>
                     <?php 
                     $no = 1;
-                    $movements_result->data_seek(0);
-                    while($movement = $movements_result->fetch_assoc()): 
+                    foreach ($movements_array as $movement):
                     ?>
                         <tr>
                             <td><?= $no++ ?></td>
@@ -273,10 +329,278 @@ $conn->close();
                             <td><?= number_format($movement['gy'], 2) ?></td>
                             <td><?= number_format($movement['gz'], 2) ?></td>
                         </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        // Data gerakan dari PHP
+        const movementsData = <?= json_encode($movements_array) ?>;
+        
+        console.log('Total movements data:', movementsData.length);
+        
+        // Filter gerakan yang terdeteksi (Pitch mendekati 0 derajat)
+        const pitchThreshold = 7; // Toleransi ±2 derajat
+        let detectedMovements = [];
+        let previousPitch = null;
+        let movementIndex = 1;
+        
+        movementsData.forEach((movement, index) => {
+            const currentPitch = parseFloat(movement.pitch);
+            
+            // Deteksi gerakan: pitch saat ini di 0° dan sebelumnya tidak di 0°
+            if (previousPitch !== null) {
+                const isAtZero = Math.abs(currentPitch) <= pitchThreshold;
+                const wasNotAtZero = Math.abs(previousPitch) > pitchThreshold;
+                
+                if (isAtZero && wasNotAtZero) {
+                    detectedMovements.push({
+                        index: movementIndex++,
+                        timestamp: movement.timestamp,
+                        roll: parseFloat(movement.roll),
+                        pitch: currentPitch,
+                        axG: parseFloat(movement.axG),
+                        ayG: parseFloat(movement.ayG),
+                        azG: parseFloat(movement.azG)
+                    });
+                }
+            }
+            
+            previousPitch = currentPitch;
+        });
+        
+        console.log('Detected movements:', detectedMovements.length);
+        document.getElementById('totalDetectedMovements').textContent = detectedMovements.length;
+        
+        // Prepare chart data
+        const labels = detectedMovements.map(m => {
+            const time = new Date(m.timestamp);
+            return `Gerakan ${m.index}\n${time.toLocaleTimeString('id-ID')}`;
+        });
+        
+        const rollData = detectedMovements.map(m => m.roll);
+        const pitchData = detectedMovements.map(m => m.pitch);
+        
+        // Create chart
+        const ctx = document.getElementById('movementChart').getContext('2d');
+        const movementChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Roll (°)',
+                        data: rollData,
+                        borderColor: '#f39c12',
+                        backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        pointBackgroundColor: '#f39c12',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        fill: true
+                    },
+                    {
+                        label: 'Pitch (°)',
+                        data: pitchData,
+                        borderColor: '#9b59b6',
+                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        pointBackgroundColor: '#9b59b6',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].label.replace('\n', ' - ');
+                            },
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '°';
+                            },
+                            afterLabel: function(context) {
+                                const movement = detectedMovements[context.dataIndex];
+                                return [
+                                    'Accel X: ' + movement.axG.toFixed(3) + ' G',
+                                    'Accel Y: ' + movement.ayG.toFixed(3) + ' G',
+                                    'Accel Z: ' + movement.azG.toFixed(3) + ' G'
+                                ];
+                            }
+                        },
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        padding: 12
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        title: {
+                            display: true,
+                            text: 'Derajat (°)',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        ticks: {
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Urutan Gerakan',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        ticks: {
+                            font: {
+                                size: 10
+                            },
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Export to PDF function
+        async function exportMovementChartPDF() {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('l', 'mm', 'a4'); // Landscape
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            
+            // Title
+            pdf.setFontSize(18);
+            pdf.text('Laporan Grafik Gerakan Terdeteksi', pageWidth / 2, 15, { align: 'center' });
+            
+            // Session Info
+            pdf.setFontSize(12);
+            pdf.text('<?= $session['nama'] ?>', pageWidth / 2, 25, { align: 'center' });
+            pdf.text('<?= $session['therapy_type'] ?>', pageWidth / 2, 32, { align: 'center' });
+            pdf.text('Tanggal: <?= date('d/m/Y H:i', strtotime($session['start_time'])) ?>', pageWidth / 2, 39, { align: 'center' });
+            
+            // Chart
+            const canvas = document.getElementById('movementChart');
+            const imgData = canvas.toDataURL('image/png', 1.0);
+            
+            const imgWidth = pageWidth - 30;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            
+            pdf.addImage(imgData, 'PNG', 15, 45, imgWidth, imgHeight);
+            
+            // Summary at bottom
+            const yPosition = 45 + imgHeight + 10;
+            pdf.setFontSize(11);
+            pdf.text('Total Gerakan Terdeteksi: ' + detectedMovements.length + ' gerakan', 15, yPosition);
+            pdf.text('Durasi Terapi: <?= gmdate("i:s", $session['duration']) ?> menit', 15, yPosition + 7);
+            pdf.text('Total Data Points: <?= $stats['total_data'] ?>', 15, yPosition + 14);
+            
+            // Add data table on new page
+            if (detectedMovements.length > 0) {
+                pdf.addPage();
+                pdf.setFontSize(14);
+                pdf.text('Data Detail Gerakan Terdeteksi', pageWidth / 2, 15, { align: 'center' });
+                
+                // Table headers
+                pdf.setFontSize(10);
+                let yPos = 25;
+                const colWidths = [15, 50, 30, 30, 30, 30, 30];
+                const headers = ['No', 'Waktu', 'Roll (°)', 'Pitch (°)', 'Accel X', 'Accel Y', 'Accel Z'];
+                
+                let xPos = 15;
+                headers.forEach((header, i) => {
+                    pdf.text(header, xPos, yPos);
+                    xPos += colWidths[i];
+                });
+                
+                // Table data
+                yPos += 7;
+                detectedMovements.forEach((movement, index) => {
+                    if (yPos > pageHeight - 20) {
+                        pdf.addPage();
+                        yPos = 20;
+                    }
+                    
+                    xPos = 15;
+                    const time = new Date(movement.timestamp);
+                    const row = [
+                        movement.index,
+                        time.toLocaleTimeString('id-ID'),
+                        movement.roll.toFixed(2),
+                        movement.pitch.toFixed(2),
+                        movement.axG.toFixed(3),
+                        movement.ayG.toFixed(3),
+                        movement.azG.toFixed(3)
+                    ];
+                    
+                    row.forEach((cell, i) => {
+                        pdf.text(String(cell), xPos, yPos);
+                        xPos += colWidths[i];
+                    });
+                    
+                    yPos += 7;
+                });
+            }
+            
+            // Footer
+            const pageCount = pdf.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                pdf.setPage(i);
+                pdf.setFontSize(9);
+                pdf.text(
+                    'Export Date: ' + new Date().toLocaleString('id-ID'),
+                    pageWidth - 15,
+                    pageHeight - 10,
+                    { align: 'right' }
+                );
+                pdf.text(
+                    'Page ' + i + ' of ' + pageCount,
+                    15,
+                    pageHeight - 10
+                );
+            }
+            
+            // Save PDF
+            const filename = 'gerakan_terdeteksi_<?= str_replace(' ', '_', $session['nama']) ?>_<?= date('Ymd', strtotime($session['start_time'])) ?>.pdf';
+            pdf.save(filename);
+            
+            alert('✅ PDF berhasil di-download!');
+        }
+    </script>
 </body>
 </html>

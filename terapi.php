@@ -455,7 +455,7 @@ $conn->close();
                 <div class="alert alert-info" id="therapyAlert">
                     💡 <strong>Tips:</strong> Pastikan sensor MPU6050 sudah terpasang di pergelangan tangan Anda sebelum memulai terapi.
                     <br><br>
-                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>0 derajat (±2°)</strong>. 
+                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>0 derajat (±7°)</strong>. 
                     Ini menandakan lengan Anda telah diangkat ke posisi horizontal.
                 </div>
             </div>
