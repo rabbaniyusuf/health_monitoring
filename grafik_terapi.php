@@ -146,6 +146,21 @@ $conn->close();
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
         
+        .btn-success {
+            background: #28a745;
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
         .stats-overview {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -199,6 +214,25 @@ $conn->close();
             font-weight: 600;
             color: #333;
             margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .btn-export-chart {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-export-chart:hover {
+            background: #138496;
+            transform: translateY(-1px);
         }
         
         .full-width {
@@ -276,7 +310,15 @@ $conn->close();
                         </span>
                     </div>
                 </div>
-                <a href="terapi.php?patient_id=<?= $patient_id ?>" class="btn">← Kembali ke Terapi</a>
+                <div class="export-buttons">
+                    <button onclick="exportAllChartsAsPDF()" class="btn btn-success">
+                        📊 Export Semua Grafik (PDF)
+                    </button>
+                    <button onclick="exportAllChartsAsImages()" class="btn btn-warning">
+                        🖼️ Export Semua Grafik (PNG)
+                    </button>
+                    <a href="terapi.php?patient_id=<?= $patient_id ?>" class="btn">← Kembali ke Terapi</a>
+                </div>
             </div>
         </div>
 
@@ -371,6 +413,8 @@ $conn->close();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
         const sessionsData = <?= json_encode(array_reverse($sessions_data)) ?>;
         let activeSessionIndices = sessionsData.map((_, i) => i);
@@ -715,6 +759,108 @@ $conn->close();
                 initCharts();
             }
         });
+
+        // ==========================================
+        // EXPORT FUNCTIONS
+        // ==========================================
+
+        async function exportAllChartsAsPDF() {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            
+            // Title page
+            pdf.setFontSize(20);
+            pdf.text('Laporan Grafik Terapi', pageWidth / 2, 20, { align: 'center' });
+            pdf.setFontSize(12);
+            pdf.text('<?= $patient['nama'] ?>', pageWidth / 2, 30, { align: 'center' });
+            pdf.text('Tanggal Export: ' + new Date().toLocaleDateString('id-ID'), pageWidth / 2, 37, { align: 'center' });
+            
+            const chartElements = [
+                { id: 'rollPitchChart', title: 'Perbandingan Roll & Pitch' },
+                { id: 'durationChart', title: 'Durasi & Total Gerakan' },
+                { id: 'accelChart', title: 'Perbandingan Accelerometer' },
+                { id: 'gyroChart', title: 'Perbandingan Gyroscope' },
+                { id: 'trendChart', title: 'Tren Perkembangan Terapi' },
+                { id: 'rangeChart', title: 'Range Roll & Pitch per Sesi' }
+            ];
+            
+            let isFirstChart = true;
+            
+            for (const chart of chartElements) {
+                if (!isFirstChart) {
+                    pdf.addPage();
+                }
+                
+                const canvas = document.getElementById(chart.id);
+                const imgData = canvas.toDataURL('image/png');
+                
+                pdf.setFontSize(14);
+                pdf.text(chart.title, pageWidth / 2, 15, { align: 'center' });
+                
+                const imgWidth = pageWidth - 20;
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                pdf.addImage(imgData, 'PNG', 10, 25, imgWidth, imgHeight);
+                
+                isFirstChart = false;
+            }
+            
+            pdf.save('grafik_terapi_<?= str_replace(' ', '_', $patient['nama']) ?>_' + new Date().getTime() + '.pdf');
+            
+            alert('✅ PDF berhasil di-download!');
+        }
+
+        async function exportAllChartsAsImages() {
+            const chartElements = [
+                { id: 'rollPitchChart', title: 'roll_pitch' },
+                { id: 'durationChart', title: 'durasi_gerakan' },
+                { id: 'accelChart', title: 'accelerometer' },
+                { id: 'gyroChart', title: 'gyroscope' },
+                { id: 'trendChart', title: 'tren_perkembangan' },
+                { id: 'rangeChart', title: 'range_gerakan' }
+            ];
+            
+            let downloadedCount = 0;
+            
+            for (const chart of chartElements) {
+                const canvas = document.getElementById(chart.id);
+                
+                // Convert canvas to blob
+                canvas.toBlob(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `grafik_${chart.title}_<?= str_replace(' ', '_', $patient['nama']) ?>_${new Date().getTime()}.png`;
+                    link.href = url;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                    
+                    downloadedCount++;
+                    if (downloadedCount === chartElements.length) {
+                        setTimeout(() => {
+                            alert('✅ Semua grafik berhasil di-download sebagai PNG!');
+                        }, 500);
+                    }
+                }, 'image/png');
+                
+                // Delay between downloads
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+
+        // Export individual chart
+        function exportChart(chartId, filename) {
+            const canvas = document.getElementById(chartId);
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = filename + '_' + new Date().getTime() + '.png';
+                link.href = url;
+                link.click();
+                URL.revokeObjectURL(url);
+            }, 'image/png');
+        }
     </script>
 </body>
 </html>

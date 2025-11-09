@@ -113,6 +113,10 @@ $conn->close();
         .btn-success {
             background: #28a745;
         }
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -184,6 +188,9 @@ $conn->close();
                 <div>
                     <a href="grafik_terapi.php?patient_id=<?= $session['patient_id'] ?>" class="btn btn-success">
                         📈 Lihat Grafik Perbandingan
+                    </a>
+                    <a href="api/export_therapy_csv.php?session_id=<?= $session_id ?>" class="btn btn-warning">
+                        📥 Export CSV
                     </a>
                     <a href="terapi.php?patient_id=<?= $session['patient_id'] ?>" class="btn">← Kembali</a>
                 </div>
