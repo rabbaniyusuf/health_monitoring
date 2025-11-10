@@ -389,12 +389,12 @@ $conn->close();
                 </div>
 
                 <div class="chart-container">
-                    <div class="chart-title">📈 Perbandingan Accelerometer (Rata-rata)</div>
+                    <div class="chart-title">📈 Riwayat Accelerometer (Rata-rata)</div>
                     <canvas id="accelChart" width="400" height="300"></canvas>
                 </div>
 
                 <div class="chart-container">
-                    <div class="chart-title">🔄 Perbandingan Gyroscope (Rata-rata)</div>
+                    <div class="chart-title">🔄 Riwayat Gyroscope (Rata-rata)</div>
                     <canvas id="gyroChart" width="400" height="300"></canvas>
                 </div>
 
