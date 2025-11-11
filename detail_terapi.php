@@ -284,8 +284,14 @@ $conn->close();
             </div>
             
             <div class="alert-info">
-                ℹ️ <strong>Keterangan:</strong> Grafik ini menampilkan data Roll & Pitch hanya pada saat gerakan terdeteksi 
-                (ketika Pitch mencapai 0° ± 7°). Setiap titik pada grafik merepresentasikan 1 gerakan yang berhasil tercatat.
+    ℹ️          <strong>Keterangan:</strong> Grafik ini menampilkan data Roll & Pitch hanya pada saat gerakan terdeteksi 
+                (ketika Pitch mencapai <strong>90° ± 7°</strong>, range: <strong>83° - 97°</strong>). 
+                <br><br>
+                Setiap titik pada grafik merepresentasikan 1 gerakan yang berhasil tercatat ketika lengan diangkat ke posisi vertikal.
+                <br><br>
+                <strong>🎯 Target:</strong> Pitch = 90° (lengan vertikal)<br>
+                <strong>📏 Range Valid:</strong> 83° - 97° (toleransi ±7°)<br>
+                <strong>✅ Gerakan Terdeteksi:</strong> Saat pitch masuk ke range valid setelah berada di luar range
             </div>
 
             <canvas id="movementChart" width="400" height="200"></canvas>
@@ -338,164 +344,216 @@ $conn->close();
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
-        // Data gerakan dari PHP
-        const movementsData = <?= json_encode($movements_array) ?>;
+        // Script untuk detail_terapi.php dengan logika 90 derajat
+
+// Data gerakan dari PHP
+const movementsData = <?= json_encode($movements_array) ?>;
+
+console.log('Total movements data:', movementsData.length);
+
+// Filter gerakan yang terdeteksi (Pitch mendekati 90 derajat)
+const pitchThreshold = 7; // Toleransi ±7 derajat
+const target90Degree = 90;
+let detectedMovements = [];
+let previousPitch = null;
+let movementIndex = 1;
+
+movementsData.forEach((movement, index) => {
+    const currentPitch = parseFloat(movement.pitch);
+    
+    // Deteksi gerakan: pitch saat ini di 90° dan sebelumnya tidak di 90°
+    if (previousPitch !== null) {
+        const isAt90 = Math.abs(currentPitch - target90Degree) <= pitchThreshold;
+        const wasNotAt90 = Math.abs(previousPitch - target90Degree) > pitchThreshold;
         
-        console.log('Total movements data:', movementsData.length);
-        
-        // Filter gerakan yang terdeteksi (Pitch mendekati 0 derajat)
-        const pitchThreshold = 7; // Toleransi ±2 derajat
-        let detectedMovements = [];
-        let previousPitch = null;
-        let movementIndex = 1;
-        
-        movementsData.forEach((movement, index) => {
-            const currentPitch = parseFloat(movement.pitch);
-            
-            // Deteksi gerakan: pitch saat ini di 0° dan sebelumnya tidak di 0°
-            if (previousPitch !== null) {
-                const isAtZero = Math.abs(currentPitch) <= pitchThreshold;
-                const wasNotAtZero = Math.abs(previousPitch) > pitchThreshold;
-                
-                if (isAtZero && wasNotAtZero) {
-                    detectedMovements.push({
-                        index: movementIndex++,
-                        timestamp: movement.timestamp,
-                        roll: parseFloat(movement.roll),
-                        pitch: currentPitch,
-                        axG: parseFloat(movement.axG),
-                        ayG: parseFloat(movement.ayG),
-                        azG: parseFloat(movement.azG)
-                    });
-                }
-            }
-            
-            previousPitch = currentPitch;
-        });
-        
-        console.log('Detected movements:', detectedMovements.length);
-        document.getElementById('totalDetectedMovements').textContent = detectedMovements.length;
-        
-        // Prepare chart data
-        const labels = detectedMovements.map(m => {
-            const time = new Date(m.timestamp);
-            return `Gerakan ${m.index}\n${time.toLocaleTimeString('id-ID')}`;
-        });
-        
-        const rollData = detectedMovements.map(m => m.roll);
-        const pitchData = detectedMovements.map(m => m.pitch);
-        
-        // Create chart
-        const ctx = document.getElementById('movementChart').getContext('2d');
-        const movementChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Roll (°)',
-                        data: rollData,
-                        borderColor: '#f39c12',
-                        backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 3,
-                        pointRadius: 6,
-                        pointHoverRadius: 8,
-                        pointBackgroundColor: '#f39c12',
-                        pointBorderColor: '#fff',
-                        pointBorderWidth: 2,
-                        fill: true
-                    },
-                    {
-                        label: 'Pitch (°)',
-                        data: pitchData,
-                        borderColor: '#9b59b6',
-                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 3,
-                        pointRadius: 6,
-                        pointHoverRadius: 8,
-                        pointBackgroundColor: '#9b59b6',
-                        pointBorderColor: '#fff',
-                        pointBorderWidth: 2,
-                        fill: true
-                    }
-                ]
+        if (isAt90 && wasNotAt90) {
+            detectedMovements.push({
+                index: movementIndex++,
+                timestamp: movement.timestamp,
+                roll: parseFloat(movement.roll),
+                pitch: currentPitch,
+                axG: parseFloat(movement.axG),
+                ayG: parseFloat(movement.ayG),
+                azG: parseFloat(movement.azG)
+            });
+        }
+    }
+    
+    previousPitch = currentPitch;
+});
+
+console.log('Detected movements at 90°:', detectedMovements.length);
+document.getElementById('totalDetectedMovements').textContent = detectedMovements.length;
+
+// Prepare chart data
+const labels = detectedMovements.map(m => {
+    const time = new Date(m.timestamp);
+    return `Gerakan ${m.index}\n${time.toLocaleTimeString('id-ID')}`;
+});
+
+const rollData = detectedMovements.map(m => m.roll);
+const pitchData = detectedMovements.map(m => m.pitch);
+
+// Create chart
+const ctx = document.getElementById('movementChart').getContext('2d');
+const movementChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: 'Roll (°)',
+                data: rollData,
+                borderColor: '#f39c12',
+                backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                tension: 0.4,
+                borderWidth: 3,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                pointBackgroundColor: '#f39c12',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                fill: true
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        labels: {
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        }
+            {
+                label: 'Pitch (°)',
+                data: pitchData,
+                borderColor: '#9b59b6',
+                backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                tension: 0.4,
+                borderWidth: 3,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                pointBackgroundColor: '#9b59b6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                fill: true
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    font: {
+                        size: 14,
+                        weight: 'bold'
+                    }
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    title: function(context) {
+                        return context[0].label.replace('\n', ' - ');
                     },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                return context[0].label.replace('\n', ' - ');
-                            },
-                            label: function(context) {
-                                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '°';
-                            },
-                            afterLabel: function(context) {
-                                const movement = detectedMovements[context.dataIndex];
-                                return [
-                                    'Accel X: ' + movement.axG.toFixed(3) + ' G',
-                                    'Accel Y: ' + movement.ayG.toFixed(3) + ' G',
-                                    'Accel Z: ' + movement.azG.toFixed(3) + ' G'
-                                ];
-                            }
-                        },
-                        backgroundColor: 'rgba(0,0,0,0.8)',
-                        titleFont: { size: 14, weight: 'bold' },
-                        bodyFont: { size: 12 },
-                        padding: 12
+                    label: function(context) {
+                        return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '°';
+                    },
+                    afterLabel: function(context) {
+                        const movement = detectedMovements[context.dataIndex];
+                        return [
+                            'Accel X: ' + movement.axG.toFixed(3) + ' G',
+                            'Accel Y: ' + movement.ayG.toFixed(3) + ' G',
+                            'Accel Z: ' + movement.azG.toFixed(3) + ' G',
+                            '─────────────────',
+                            'Target: 90° (±7°)',
+                            'Range: 83° - 97°'
+                        ];
                     }
                 },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        title: {
-                            display: true,
-                            text: 'Derajat (°)',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        },
-                        ticks: {
-                            font: {
-                                size: 12
-                            }
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                titleFont: { size: 14, weight: 'bold' },
+                bodyFont: { size: 12 },
+                padding: 12
+            },
+            // Add horizontal line at 90°
+            annotation: {
+                annotations: {
+                    line90: {
+                        type: 'line',
+                        yMin: 90,
+                        yMax: 90,
+                        borderColor: 'rgb(255, 99, 132)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        label: {
+                            content: 'Target: 90°',
+                            enabled: true,
+                            position: 'end'
                         }
                     },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Urutan Gerakan',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        },
-                        ticks: {
-                            font: {
-                                size: 10
-                            },
-                            maxRotation: 45,
-                            minRotation: 45
+                    line83: {
+                        type: 'line',
+                        yMin: 83,
+                        yMax: 83,
+                        borderColor: 'rgba(255, 193, 7, 0.5)',
+                        borderWidth: 1,
+                        borderDash: [3, 3],
+                        label: {
+                            content: 'Min: 83°',
+                            enabled: true,
+                            position: 'start'
+                        }
+                    },
+                    line97: {
+                        type: 'line',
+                        yMin: 97,
+                        yMax: 97,
+                        borderColor: 'rgba(255, 193, 7, 0.5)',
+                        borderWidth: 1,
+                        borderDash: [3, 3],
+                        label: {
+                            content: 'Max: 97°',
+                            enabled: true,
+                            position: 'start'
                         }
                     }
                 }
             }
-        });
+        },
+        scales: {
+            y: {
+                beginAtZero: false,
+                min: 70,
+                max: 110,
+                title: {
+                    display: true,
+                    text: 'Derajat (°)',
+                    font: {
+                        size: 14,
+                        weight: 'bold'
+                    }
+                },
+                ticks: {
+                    font: {
+                        size: 12
+                    }
+                }
+            },
+            x: {
+                title: {
+                    display: true,
+                    text: 'Urutan Gerakan',
+                    font: {
+                        size: 14,
+                        weight: 'bold'
+                    }
+                },
+                ticks: {
+                    font: {
+                        size: 10
+                    },
+                    maxRotation: 45,
+                    minRotation: 45
+                }
+            }
+        }
+    }
+});
         
         // Export to PDF function
         async function exportMovementChartPDF() {

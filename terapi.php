@@ -453,10 +453,12 @@ $conn->close();
                 </div>
 
                 <div class="alert alert-info" id="therapyAlert">
-                    💡 <strong>Tips:</strong> Pastikan sensor MPU6050 sudah terpasang di pergelangan tangan Anda sebelum memulai terapi.
+                    <strong>Tips:</strong> Pastikan sensor MPU6050 sudah terpasang di pergelangan tangan Anda sebelum memulai terapi.
                     <br><br>
-                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>0 derajat (±7°)</strong>. 
-                    Ini menandakan lengan Anda telah diangkat ke posisi horizontal.
+                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>90 derajat (±7°)</strong>. 
+                    Ini menandakan lengan Anda telah diangkat ke posisi <strong>vertikal</strong>.
+                    <br><br>
+                    <strong>🎯 Range Deteksi:</strong> 83° - 97° (toleransi ±7° dari 90°)
                 </div>
             </div>
 
@@ -603,8 +605,9 @@ $conn->close();
         
         // Movement detection variables
         let previousPitch = null;
-        let crossedZero = false;
-        let pitchThreshold = 7; // Toleransi ±2 derajat untuk deteksi 0 derajat
+        let crossed90 = false;
+        let pitchThreshold = 7; // Toleransi ±7 derajat
+        let target90Degree = 90; // Target pitch 90 derajat
         let lastMovementTime = 0;
         let movementCooldown = 1000; // Cooldown 1 detik antar gerakan
 
@@ -678,62 +681,60 @@ $conn->close();
         }
 
         async function startTherapy() {
-            if (!selectedVideoId) {
-                alert('⚠️ Silakan pilih video terapi terlebih dahulu!');
-                return;
-            }
+    if (!selectedVideoId) {
+        alert('⚠️ Silakan pilih video terapi terlebih dahulu!');
+        return;
+    }
 
-            if (therapyActive) {
-                alert('⚠️ Terapi sudah berjalan!');
-                return;
-            }
+    if (therapyActive) {
+        alert('⚠️ Terapi sudah berjalan!');
+        return;
+    }
 
-            try {
-                // Create therapy session
-                const response = await fetch('api/start_therapy.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        patient_id: patientId,
-                        therapy_type: selectedVideoTitle
-                    })
-                });
+    try {
+        const response = await fetch('api/start_therapy.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                patient_id: patientId,
+                therapy_type: selectedVideoTitle
+            })
+        });
 
-                const result = await response.json();
+        const result = await response.json();
 
-                if (result.success) {
-                    therapyActive = true;
-                    sessionId = result.session_id;
-                    startTime = Date.now();
-                    movementCount = 0;
-                    previousPitch = null; // Reset pitch tracking
-                    crossedZero = false;
-                    lastMovementTime = 0;
+        if (result.success) {
+            therapyActive = true;
+            sessionId = result.session_id;
+            startTime = Date.now();
+            movementCount = 0;
+            
+            // Reset detection variables untuk 90°
+            previousPitch = null;
+            crossed90 = false;
+            lastMovementTime = 0;
 
-                    document.getElementById('therapyStatus').classList.add('active');
-                    document.getElementById('statusText').textContent = 'Aktif';
-                    document.getElementById('statusText').style.color = '#28a745';
-                    document.getElementById('btnStart').style.display = 'none';
-                    document.getElementById('btnPause').style.display = 'inline-block';
-                    document.getElementById('btnStop').style.display = 'inline-block';
-                    document.getElementById('therapyAlert').className = 'alert alert-success';
-                    document.getElementById('therapyAlert').innerHTML = '✅ <strong>Terapi Dimulai!</strong> Ikuti gerakan pada video dengan perlahan dan terkontrol.';
+            document.getElementById('therapyStatus').classList.add('active');
+            document.getElementById('statusText').textContent = 'Aktif';
+            document.getElementById('statusText').style.color = '#28a745';
+            document.getElementById('btnStart').style.display = 'none';
+            document.getElementById('btnPause').style.display = 'inline-block';
+            document.getElementById('btnStop').style.display = 'inline-block';
+            document.getElementById('therapyAlert').className = 'alert alert-success';
+            document.getElementById('therapyAlert').innerHTML = '✅ <strong>Terapi Dimulai!</strong> Angkat lengan hingga vertikal (90°) untuk menghitung gerakan.';
 
-                    // Start duration timer
-                    durationInterval = setInterval(updateDuration, 1000);
+            durationInterval = setInterval(updateDuration, 1000);
+            fetchTherapyData();
 
-                    // Start fetching sensor data
-                    fetchTherapyData();
-
-                    console.log('✅ Therapy started, session ID:', sessionId);
-                } else {
-                    alert('❌ Gagal memulai terapi: ' + result.message);
-                }
-            } catch (error) {
-                console.error('Error starting therapy:', error);
-                alert('❌ Error: ' + error.message);
-            }
+            console.log('✅ Therapy started, session ID:', sessionId);
+        } else {
+            alert('❌ Gagal memulai terapi: ' + result.message);
         }
+    } catch (error) {
+        console.error('Error starting therapy:', error);
+        alert('❌ Error: ' + error.message);
+    }
+}
 
         function pauseTherapy() {
             if (!therapyActive) return;
@@ -806,119 +807,120 @@ $conn->close();
         }
 
         async function fetchTherapyData() {
-            if (!therapyActive) return;
+    if (!therapyActive) return;
 
-            try {
-                const response = await fetch(`api/get_latest.php?patient_id=${patientId}&limit=1`);
-                const data = await response.json();
+    try {
+        const response = await fetch(`api/get_latest.php?patient_id=${patientId}&limit=1`);
+        const data = await response.json();
 
-                if (data.success && data.data.length > 0) {
-                    const latest = data.data[0];
-                    const currentPitch = parseFloat(latest.pitch);
+        if (data.success && data.data.length > 0) {
+            const latest = data.data[0];
+            const currentPitch = parseFloat(latest.pitch);
 
-                    // Update sensor values
-                    document.getElementById('rollValue').textContent = currentPitch.toFixed(1);
-                    document.getElementById('pitchValue').textContent = currentPitch.toFixed(1);
-                    document.getElementById('currentPitchDisplay').textContent = currentPitch.toFixed(1) + '°';
-                    document.getElementById('axValue').textContent = parseFloat(latest.axG).toFixed(2);
-                    document.getElementById('ayValue').textContent = parseFloat(latest.ayG).toFixed(2);
-                    document.getElementById('azValue').textContent = parseFloat(latest.azG).toFixed(2);
-                    document.getElementById('gxValue').textContent = parseFloat(latest.gx).toFixed(2);
-                    document.getElementById('gyValue').textContent = parseFloat(latest.gy).toFixed(2);
-                    document.getElementById('gzValue').textContent = parseFloat(latest.gz).toFixed(2);
+            // Update sensor values
+            document.getElementById('rollValue').textContent = parseFloat(latest.roll).toFixed(1);
+            document.getElementById('pitchValue').textContent = currentPitch.toFixed(1);
+            document.getElementById('currentPitchDisplay').textContent = currentPitch.toFixed(1) + '°';
+            document.getElementById('axValue').textContent = parseFloat(latest.axG).toFixed(2);
+            document.getElementById('ayValue').textContent = parseFloat(latest.ayG).toFixed(2);
+            document.getElementById('azValue').textContent = parseFloat(latest.azG).toFixed(2);
+            document.getElementById('gxValue').textContent = parseFloat(latest.gx).toFixed(2);
+            document.getElementById('gyValue').textContent = parseFloat(latest.gy).toFixed(2);
+            document.getElementById('gzValue').textContent = parseFloat(latest.gz).toFixed(2);
+            
+            // Update detection status display - UPDATED untuk 90°
+            const detectionElement = document.getElementById('detectionStatus');
+            const deviationFrom90 = Math.abs(currentPitch - target90Degree);
+            
+            if (deviationFrom90 <= pitchThreshold) {
+                detectionElement.textContent = '✅ Posisi 90° Terdeteksi!';
+                detectionElement.style.color = '#28a745';
+            } else if (deviationFrom90 < 15) {
+                detectionElement.textContent = `⚠️ Mendekati 90° (${currentPitch.toFixed(1)}°)...`;
+                detectionElement.style.color = '#ffc107';
+            } else {
+                detectionElement.textContent = '⏳ Menunggu gerakan...';
+                detectionElement.style.color = '#999';
+            }
+
+            // Update chart
+            const time = new Date().toLocaleTimeString('id-ID');
+            chart.data.labels.push(time);
+            chart.data.datasets[0].data.push(parseFloat(latest.roll));
+            chart.data.datasets[1].data.push(currentPitch);
+
+            // Keep only last 20 points
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+                chart.data.datasets[1].data.shift();
+            }
+
+            chart.update('none');
+
+            // ==========================================
+            // DETEKSI GERAKAN PADA 90° (±7°)
+            // ==========================================
+            const currentTime = Date.now();
+            
+            if (previousPitch !== null) {
+                // Cek apakah pitch berada di sekitar 90 derajat (83° - 97°)
+                const isAt90 = deviationFrom90 <= pitchThreshold;
+                
+                // Cek apakah pitch sebelumnya tidak di 90° (untuk menghindari double count)
+                const wasNotAt90 = Math.abs(previousPitch - target90Degree) > pitchThreshold;
+                
+                // Cek cooldown untuk menghindari gerakan terlalu cepat terhitung
+                const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
+                
+                // Gerakan terdeteksi jika:
+                // 1. Pitch sekarang di 90° (±7°, range: 83°-97°)
+                // 2. Pitch sebelumnya tidak di 90° (transisi)
+                // 3. Cooldown sudah lewat
+                if (isAt90 && wasNotAt90 && cooldownPassed && !crossed90) {
+                    movementCount++;
+                    document.getElementById('movementCount').textContent = movementCount;
                     
-                    // Update detection status display
-                    const detectionElement = document.getElementById('detectionStatus');
-                    if (Math.abs(currentPitch) <= pitchThreshold) {
-                        detectionElement.textContent = '✅ Posisi 0° Terdeteksi!';
-                        detectionElement.style.color = '#28a745';
-                    } else if (Math.abs(currentPitch) < 10) {
-                        detectionElement.textContent = '⚠️ Mendekati 0°...';
-                        detectionElement.style.color = '#ffc107';
-                    } else {
-                        detectionElement.textContent = '⏳ Menunggu gerakan...';
-                        detectionElement.style.color = '#999';
-                    }
-
-                    // Update chart
-                    const time = new Date().toLocaleTimeString('id-ID');
-                    chart.data.labels.push(time);
-                    chart.data.datasets[0].data.push(parseFloat(latest.roll));
-                    chart.data.datasets[1].data.push(currentPitch);
-
-                    // Keep only last 20 points
-                    if (chart.data.labels.length > 20) {
-                        chart.data.labels.shift();
-                        chart.data.datasets[0].data.shift();
-                        chart.data.datasets[1].data.shift();
-                    }
-
-                    chart.update('none');
-
-                    // ==========================================
-                    // DETEKSI GERAKAN MENGANGKAT LENGAN
-                    // ==========================================
-                    const currentTime = Date.now();
+                    // Visual feedback
+                    const countElement = document.getElementById('movementCount');
+                    countElement.style.color = '#28a745';
+                    countElement.style.transform = 'scale(1.3)';
                     
-                    // Deteksi saat pitch melewati 0 derajat (dengan toleransi)
-                    if (previousPitch !== null) {
-                        // Cek apakah pitch berada di sekitar 0 derajat (±threshold)
-                        const isAtZero = Math.abs(currentPitch) <= pitchThreshold;
-                        
-                        // Cek apakah pitch sebelumnya tidak di 0 (untuk menghindari double count)
-                        const wasNotAtZero = Math.abs(previousPitch) > pitchThreshold;
-                        
-                        // Cek cooldown untuk menghindari gerakan terlalu cepat terhitung
-                        const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
-                        
-                        // Gerakan terdeteksi jika:
-                        // 1. Pitch sekarang di 0 derajat
-                        // 2. Pitch sebelumnya tidak di 0 (transisi)
-                        // 3. Cooldown sudah lewat
-                        if (isAtZero && wasNotAtZero && cooldownPassed && !crossedZero) {
-                            movementCount++;
-                            document.getElementById('movementCount').textContent = movementCount;
-                            
-                            // Visual feedback
-                            const countElement = document.getElementById('movementCount');
-                            countElement.style.color = '#28a745';
-                            countElement.style.transform = 'scale(1.3)';
-                            
-                            setTimeout(() => {
-                                countElement.style.color = '#667eea';
-                                countElement.style.transform = 'scale(1)';
-                            }, 300);
-                            
-                            crossedZero = true;
-                            lastMovementTime = currentTime;
-                            
-                            console.log(`✅ Gerakan terdeteksi! Total: ${movementCount} | Pitch: ${currentPitch.toFixed(2)}°`);
-                            
-                            // Play sound (optional)
-                            playBeep();
-                        }
-                        
-                        // Reset flag saat pitch menjauhi 0
-                        if (Math.abs(currentPitch) > pitchThreshold + 5) {
-                            crossedZero = false;
-                        }
-                    }
+                    setTimeout(() => {
+                        countElement.style.color = '#667eea';
+                        countElement.style.transform = 'scale(1)';
+                    }, 300);
                     
-                    // Simpan pitch sebelumnya
-                    previousPitch = currentPitch;
-
-                    // Save to therapy_movements
-                    await saveTherapyMovement(latest);
+                    crossed90 = true;
+                    lastMovementTime = currentTime;
+                    
+                    console.log(`✅ Gerakan terdeteksi! Total: ${movementCount} | Pitch: ${currentPitch.toFixed(2)}° (Target: 90°)`);
+                    
+                    // Play sound feedback
+                    playBeep();
                 }
-            } catch (error) {
-                console.error('Error fetching therapy data:', error);
+                
+                // Reset flag saat pitch menjauhi 90° (lebih dari threshold + buffer)
+                if (deviationFrom90 > pitchThreshold + 5) {
+                    crossed90 = false;
+                }
             }
+            
+            // Simpan pitch sebelumnya
+            previousPitch = currentPitch;
 
-            // Continue fetching
-            if (therapyActive) {
-                setTimeout(fetchTherapyData, 1000);
-            }
+            // Save to therapy_movements
+            await saveTherapyMovement(latest);
         }
+    } catch (error) {
+        console.error('Error fetching therapy data:', error);
+    }
+
+    // Continue fetching
+    if (therapyActive) {
+        setTimeout(fetchTherapyData, 1000);
+    }
+}
 
         async function saveTherapyMovement(sensorData) {
             if (!sessionId) return;
