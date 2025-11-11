@@ -285,12 +285,12 @@ $conn->close();
             
             <div class="alert-info">
     ℹ️          <strong>Keterangan:</strong> Grafik ini menampilkan data Roll & Pitch hanya pada saat gerakan terdeteksi 
-                (ketika Pitch mencapai <strong>90° ± 7°</strong>, range: <strong>83° - 97°</strong>). 
+                (ketika Pitch mencapai <strong>-90° ± 7°</strong>, range: <strong>-83° sampai -97°</strong>). 
                 <br><br>
                 Setiap titik pada grafik merepresentasikan 1 gerakan yang berhasil tercatat ketika lengan diangkat ke posisi vertikal.
                 <br><br>
-                <strong>🎯 Target:</strong> Pitch = 90° (lengan vertikal)<br>
-                <strong>📏 Range Valid:</strong> 83° - 97° (toleransi ±7°)<br>
+                <strong>🎯 Target:</strong> Pitch = -90° (lengan vertikal)<br>
+                <strong>📏 Range Valid:</strong> -83° sampai -97° (toleransi ±7°)<br>
                 <strong>✅ Gerakan Terdeteksi:</strong> Saat pitch masuk ke range valid setelah berada di luar range
             </div>
 
@@ -353,7 +353,7 @@ console.log('Total movements data:', movementsData.length);
 
 // Filter gerakan yang terdeteksi (Pitch mendekati 90 derajat)
 const pitchThreshold = 7; // Toleransi ±7 derajat
-const target90Degree = 90;
+const target90Degree = -90;
 let detectedMovements = [];
 let previousPitch = null;
 let movementIndex = 1;
@@ -460,7 +460,7 @@ const movementChart = new Chart(ctx, {
                             'Accel Y: ' + movement.ayG.toFixed(3) + ' G',
                             'Accel Z: ' + movement.azG.toFixed(3) + ' G',
                             '─────────────────',
-                            'Target: 90° (±7°)',
+                            'Target: -90° (±7°)',
                             'Range: 83° - 97°'
                         ];
                     }
@@ -475,8 +475,8 @@ const movementChart = new Chart(ctx, {
                 annotations: {
                     line90: {
                         type: 'line',
-                        yMin: 90,
-                        yMax: 90,
+                        yMin: -90,
+                        yMax: -90,
                         borderColor: 'rgb(255, 99, 132)',
                         borderWidth: 2,
                         borderDash: [5, 5],
@@ -488,8 +488,8 @@ const movementChart = new Chart(ctx, {
                     },
                     line83: {
                         type: 'line',
-                        yMin: 83,
-                        yMax: 83,
+                        yMin: -83,
+                        yMax: -83,
                         borderColor: 'rgba(255, 193, 7, 0.5)',
                         borderWidth: 1,
                         borderDash: [3, 3],
@@ -501,8 +501,8 @@ const movementChart = new Chart(ctx, {
                     },
                     line97: {
                         type: 'line',
-                        yMin: 97,
-                        yMax: 97,
+                        yMin: -97,
+                        yMax: -97,
                         borderColor: 'rgba(255, 193, 7, 0.5)',
                         borderWidth: 1,
                         borderDash: [3, 3],
@@ -518,8 +518,8 @@ const movementChart = new Chart(ctx, {
         scales: {
             y: {
                 beginAtZero: false,
-                min: 70,
-                max: 110,
+                min: -70,
+                max: -110,
                 title: {
                     display: true,
                     text: 'Derajat (°)',

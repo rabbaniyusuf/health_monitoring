@@ -455,10 +455,10 @@ $conn->close();
                 <div class="alert alert-info" id="therapyAlert">
                     <strong>Tips:</strong> Pastikan sensor MPU6050 sudah terpasang di pergelangan tangan Anda sebelum memulai terapi.
                     <br><br>
-                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>90 derajat (±7°)</strong>. 
+                    <strong>📏 Deteksi Gerakan:</strong> Gerakan akan terhitung otomatis ketika Pitch sensor mencapai <strong>-90 derajat (±7°)</strong>. 
                     Ini menandakan lengan Anda telah diangkat ke posisi <strong>vertikal</strong>.
                     <br><br>
-                    <strong>🎯 Range Deteksi:</strong> 83° - 97° (toleransi ±7° dari 90°)
+                    <strong>🎯 Range Deteksi:</strong> -83° sampai -97° (toleransi ±7° dari -90°)
                 </div>
             </div>
 
@@ -607,7 +607,7 @@ $conn->close();
         let previousPitch = null;
         let crossed90 = false;
         let pitchThreshold = 7; // Toleransi ±7 derajat
-        let target90Degree = 90; // Target pitch 90 derajat
+        let target90Degree = -90; // Target pitch 90 derajat
         let lastMovementTime = 0;
         let movementCooldown = 1000; // Cooldown 1 detik antar gerakan
 
