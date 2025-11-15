@@ -593,99 +593,211 @@ $conn->close();
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        const patientId = <?= $patient_id ?>;
-        let therapyActive = false;
-        let sessionId = null;
-        let startTime = null;
-        let durationInterval = null;
-        let movementCount = 0;
-        let selectedVideoId = null;
-        let selectedVideoTitle = '';
-        let chart = null;
-        
-        // Movement detection variables
-        let previousPitch = null;
-        let crossed90 = false;
-        let pitchThreshold = 7; // Toleransi ±7 derajat
-        let target90Degree = -90; // Target pitch 90 derajat
-        let lastMovementTime = 0;
-        let movementCooldown = 1000; // Cooldown 1 detik antar gerakan
+   // ==========================================
+// THERAPY PAGE - TRIPLE DETECTION SYSTEM
+// 1. Vertical (Pitch -90°) - Mengangkat lengan
+// 2. Horizontal (Gyro Z) - Kanan ke Kiri
+// 3. Rotation (Roll ±90°) - Rotasi pergelangan tangan
+// ==========================================
 
-        console.log('Therapy page loaded for patient:', patientId);
+const patientId = <?= $patient_id ?>;
+let therapyActive = false;
+let sessionId = null;
+let startTime = null;
+let durationInterval = null;
+let movementCount = 0;
+let selectedVideoId = null;
+let selectedVideoTitle = '';
+let selectedTherapyType = ''; // 'vertical', 'horizontal', atau 'rotation'
+let chart = null;
 
-        // Initialize chart
-        const ctx = document.getElementById('movementChart').getContext('2d');
-        chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        label: 'Roll',
-                        data: [],
-                        borderColor: '#f39c12',
-                        backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    },
-                    {
-                        label: 'Pitch',
-                        data: [],
-                        borderColor: '#9b59b6',
-                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
-                        tension: 0.4,
-                        borderWidth: 2
-                    }
-                ]
+// ==========================================
+// VERTICAL MOVEMENT DETECTION VARIABLES (Pitch -90°)
+// ==========================================
+let previousPitch = null;
+let crossedVertical90 = false;
+let pitchThreshold = 7;
+let targetVertical90 = -90;
+
+// ==========================================
+// HORIZONTAL MOVEMENT DETECTION VARIABLES (Gyro Z + Accel Y)
+// ==========================================
+let previousGyroZ = null;
+let previousAccelY = null;
+let horizontalDirection = 'center';
+let gyroZThreshold = 50;
+let accelYThreshold = 0.3;
+let horizontalPhase = 'waiting';
+
+// ==========================================
+// ROTATION MOVEMENT DETECTION VARIABLES (Roll ±90°)
+// ==========================================
+let previousRoll = null;
+let lastRotationPosition = 'center';
+let rollThreshold = 7;
+let targetRollRight = -90;
+let targetRollLeft = 90;
+let rotationPhase = 'waiting';
+
+// ==========================================
+// GENERAL VARIABLES
+// ==========================================
+let lastMovementTime = 0;
+let movementCooldown = 800;
+
+console.log('Therapy page loaded for patient:', patientId);
+
+// ==========================================
+// INITIALIZE CHART
+// ==========================================
+const ctx = document.getElementById('movementChart').getContext('2d');
+chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: 'Roll',
+                data: [],
+                borderColor: '#f39c12',
+                backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                tension: 0.4,
+                borderWidth: 2
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                scales: {
-                    y: {
-                        beginAtZero: false
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
-                }
+            {
+                label: 'Pitch',
+                data: [],
+                borderColor: '#9b59b6',
+                backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                tension: 0.4,
+                borderWidth: 2
             }
-        });
-
-        function changeVideo() {
-            const select = document.getElementById('videoSelect');
-            const option = select.options[select.selectedIndex];
-            
-            if (!option.value) {
-                document.getElementById('videoContainer').innerHTML = 
-                    '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: white;"><p>Pilih video terapi untuk memulai</p></div>';
-                return;
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+            y: {
+                beginAtZero: false,
+                min: -100,
+                max: 100
             }
-
-            selectedVideoId = option.value;
-            selectedVideoTitle = option.dataset.title;
-            const videoUrl = option.dataset.url;
-            const description = option.dataset.desc;
-            const difficulty = option.dataset.difficulty;
-
-            document.getElementById('videoContainer').innerHTML = 
-                `<iframe src="${videoUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
-            
-            document.getElementById('videoDescription').innerHTML = 
-                `<strong>${selectedVideoTitle}</strong><br>
-                Tingkat Kesulitan: <span class="badge badge-${difficulty === 'mudah' ? 'success' : difficulty === 'sedang' ? 'warning' : 'danger'}">${difficulty.toUpperCase()}</span><br><br>
-                ${description}`;
+        },
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top'
+            }
         }
+    }
+});
 
-        async function startTherapy() {
+// ==========================================
+// VIDEO SELECTION & THERAPY TYPE DETECTION
+// ==========================================
+function changeVideo() {
+    const select = document.getElementById('videoSelect');
+    const option = select.options[select.selectedIndex];
+    
+    if (!option.value) {
+        document.getElementById('videoContainer').innerHTML = 
+            '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: white;"><p>Pilih video terapi untuk memulai</p></div>';
+        return;
+    }
+
+    selectedVideoId = option.value;
+    selectedVideoTitle = option.dataset.title;
+    const videoUrl = option.dataset.url;
+    const description = option.dataset.desc;
+    const difficulty = option.dataset.difficulty;
+
+    // Deteksi jenis terapi berdasarkan judul video
+    if (selectedVideoTitle.toLowerCase().includes('rotasi') || 
+        selectedVideoTitle.toLowerCase().includes('putar') || 
+        selectedVideoTitle.toLowerCase().includes('pergelangan')) {
+        selectedTherapyType = 'rotation';
+        console.log('🔄 Therapy type: ROTATION (Roll ±90°)');
+    } else if (selectedVideoTitle.toLowerCase().includes('horizontal') || 
+               selectedVideoTitle.toLowerCase().includes('kanan') && selectedVideoTitle.toLowerCase().includes('kiri')) {
+        selectedTherapyType = 'horizontal';
+        console.log('↔️ Therapy type: HORIZONTAL (Gyro Z + Accel Y)');
+    } else if (selectedVideoTitle.toLowerCase().includes('vertikal') || 
+               selectedVideoTitle.toLowerCase().includes('angkat') || 
+               selectedVideoTitle.toLowerCase().includes('lengan')) {
+        selectedTherapyType = 'vertical';
+        console.log('⬆️ Therapy type: VERTICAL (Pitch -90°)');
+    } else {
+        selectedTherapyType = 'vertical';
+        console.log('⬆️ Therapy type: VERTICAL (default)');
+    }
+
+    document.getElementById('videoContainer').innerHTML = 
+        `<iframe src="${videoUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+    
+    let detectionInfo = '';
+    if (selectedTherapyType === 'rotation') {
+        detectionInfo = `<br><br><strong>🔄 Deteksi Gerakan Rotasi:</strong>
+        <br>• Posisi Kanan: Roll = -90° (±7°)
+        <br>• Posisi Kiri: Roll = +90° (±7°)
+        <br>• 1 Gerakan = Putar dari Kanan → Kiri atau Kiri → Kanan`;
+    } else if (selectedTherapyType === 'horizontal') {
+        detectionInfo = `<br><br><strong>↔️ Deteksi Gerakan Horizontal:</strong>
+        <br>• Menggunakan Gyroscope Z dan Accelerometer Y
+        <br>• 1 Gerakan = Kanan ↔ Kiri`;
+    } else {
+        detectionInfo = `<br><br><strong>⬆️ Deteksi Gerakan Vertikal:</strong>
+        <br>• Target: Pitch = -90° (±7°)
+        <br>• 1 Gerakan = Angkat lengan vertikal`;
+    }
+    
+    document.getElementById('videoDescription').innerHTML = 
+        `<strong>${selectedVideoTitle}</strong><br>
+        Tingkat Kesulitan: <span class="badge badge-${difficulty === 'mudah' ? 'success' : difficulty === 'sedang' ? 'warning' : 'danger'}">${difficulty.toUpperCase()}</span><br><br>
+        ${description}${detectionInfo}`;
+    
+    updateTherapyAlert('select');
+}
+
+function updateTherapyAlert(state) {
+    const alertElement = document.getElementById('therapyAlert');
+    
+    if (state === 'select') {
+        if (selectedTherapyType === 'rotation') {
+            alertElement.className = 'alert alert-info';
+            alertElement.innerHTML = `<strong>Tips:</strong> Pastikan sensor MPU6050 terpasang di pergelangan tangan.
+            <br><br><strong>🔄 Deteksi Gerakan Rotasi:</strong> Roll -90° (kanan) dan +90° (kiri).
+            <br><strong>🎯 Range:</strong> Kanan -83° s/d -97° | Kiri 83° s/d 97°`;
+        } else if (selectedTherapyType === 'horizontal') {
+            alertElement.className = 'alert alert-info';
+            alertElement.innerHTML = `<strong>Tips:</strong> Pastikan sensor MPU6050 terpasang di pergelangan tangan.
+            <br><br><strong>↔️ Deteksi Horizontal:</strong> Gerakan kanan-kiri menggunakan Gyro Z dan Accel Y.`;
+        } else {
+            alertElement.className = 'alert alert-info';
+            alertElement.innerHTML = `<strong>Tips:</strong> Pastikan sensor MPU6050 terpasang di pergelangan tangan.
+            <br><br><strong>⬆️ Deteksi Vertikal:</strong> Pitch -90° (±7°) saat lengan vertikal.
+            <br><strong>🎯 Range:</strong> -83° sampai -97°`;
+        }
+    } else if (state === 'active') {
+        alertElement.className = 'alert alert-success';
+        const msg = selectedTherapyType === 'rotation' ? 'Putar pergelangan tangan melingkar.' :
+                    selectedTherapyType === 'horizontal' ? 'Gerakkan tangan kanan-kiri horizontal.' :
+                    'Angkat lengan hingga vertikal.';
+        alertElement.innerHTML = `✅ <strong>Terapi Dimulai!</strong> ${msg}`;
+    } else if (state === 'pause') {
+        alertElement.className = 'alert alert-warning';
+        alertElement.innerHTML = '⏸ <strong>Terapi Di-pause</strong> - Klik Resume untuk melanjutkan.';
+    } else if (state === 'complete') {
+        alertElement.className = 'alert alert-info';
+        alertElement.innerHTML = '✅ <strong>Terapi Selesai!</strong> Data tersimpan.';
+    }
+}
+
+async function startTherapy() {
     if (!selectedVideoId) {
         alert('⚠️ Silakan pilih video terapi terlebih dahulu!');
         return;
     }
-
     if (therapyActive) {
         alert('⚠️ Terapi sudah berjalan!');
         return;
@@ -702,111 +814,97 @@ $conn->close();
         });
 
         const result = await response.json();
-
         if (result.success) {
             therapyActive = true;
             sessionId = result.session_id;
             startTime = Date.now();
             movementCount = 0;
             
-            // Reset detection variables untuk 90°
-            previousPitch = null;
-            crossed90 = false;
+            if (selectedTherapyType === 'rotation') {
+                previousRoll = null;
+                lastRotationPosition = 'center';
+                rotationPhase = 'waiting';
+            } else if (selectedTherapyType === 'horizontal') {
+                previousGyroZ = null;
+                previousAccelY = null;
+                horizontalDirection = 'center';
+                horizontalPhase = 'waiting';
+            } else {
+                previousPitch = null;
+                crossedVertical90 = false;
+            }
+            
             lastMovementTime = 0;
-
             document.getElementById('therapyStatus').classList.add('active');
             document.getElementById('statusText').textContent = 'Aktif';
             document.getElementById('statusText').style.color = '#28a745';
             document.getElementById('btnStart').style.display = 'none';
             document.getElementById('btnPause').style.display = 'inline-block';
             document.getElementById('btnStop').style.display = 'inline-block';
-            document.getElementById('therapyAlert').className = 'alert alert-success';
-            document.getElementById('therapyAlert').innerHTML = '✅ <strong>Terapi Dimulai!</strong> Angkat lengan hingga vertikal (90°) untuk menghitung gerakan.';
-
+            updateTherapyAlert('active');
             durationInterval = setInterval(updateDuration, 1000);
             fetchTherapyData();
-
-            console.log('✅ Therapy started, session ID:', sessionId);
+            console.log('✅ Therapy started:', sessionId, 'Type:', selectedTherapyType);
         } else {
             alert('❌ Gagal memulai terapi: ' + result.message);
         }
     } catch (error) {
-        console.error('Error starting therapy:', error);
+        console.error('Error:', error);
         alert('❌ Error: ' + error.message);
     }
 }
 
-        function pauseTherapy() {
-            if (!therapyActive) return;
+function pauseTherapy() {
+    if (!therapyActive) return;
+    therapyActive = false;
+    clearInterval(durationInterval);
+    document.getElementById('statusText').textContent = 'Pause';
+    document.getElementById('statusText').style.color = '#ffc107';
+    document.getElementById('btnPause').textContent = '▶️ Resume';
+    updateTherapyAlert('pause');
+}
 
+async function stopTherapy() {
+    if (!sessionId || !confirm('Yakin ingin menghentikan terapi?')) return;
+
+    try {
+        const duration = Math.floor((Date.now() - startTime) / 1000);
+        const response = await fetch('api/stop_therapy.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                duration: duration,
+                total_movements: movementCount
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
             therapyActive = false;
             clearInterval(durationInterval);
-            
-            document.getElementById('statusText').textContent = 'Pause';
-            document.getElementById('statusText').style.color = '#ffc107';
-            document.getElementById('btnPause').textContent = '▶️ Resume';
-            document.getElementById('therapyAlert').className = 'alert alert-warning';
-            document.getElementById('therapyAlert').innerHTML = '⏸ <strong>Terapi Di-pause</strong> - Klik Resume untuk melanjutkan.';
-
-            console.log('⏸ Therapy paused');
+            document.getElementById('statusText').textContent = 'Selesai';
+            document.getElementById('statusText').style.color = '#dc3545';
+            document.getElementById('btnStart').style.display = 'inline-block';
+            document.getElementById('btnPause').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'none';
+            updateTherapyAlert('complete');
+            alert(`✅ Terapi selesai!\n\nDurasi: ${gmdate(duration)}\nTotal Gerakan: ${movementCount}`);
+            setTimeout(() => location.reload(), 2000);
         }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error: ' + error.message);
+    }
+}
 
-        async function stopTherapy() {
-            if (!sessionId) return;
+function updateDuration() {
+    if (!startTime) return;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById('durationText').textContent = gmdate(elapsed);
+}
 
-            if (!confirm('Yakin ingin menghentikan terapi?')) {
-                return;
-            }
-
-            try {
-                const duration = Math.floor((Date.now() - startTime) / 1000);
-
-                const response = await fetch('api/stop_therapy.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        session_id: sessionId,
-                        duration: duration,
-                        total_movements: movementCount
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    therapyActive = false;
-                    clearInterval(durationInterval);
-
-                    document.getElementById('statusText').textContent = 'Selesai';
-                    document.getElementById('statusText').style.color = '#dc3545';
-                    document.getElementById('btnStart').style.display = 'inline-block';
-                    document.getElementById('btnPause').style.display = 'none';
-                    document.getElementById('btnStop').style.display = 'none';
-                    document.getElementById('therapyAlert').className = 'alert alert-info';
-                    document.getElementById('therapyAlert').innerHTML = '✅ <strong>Terapi Selesai!</strong> Data telah disimpan. Silakan reload halaman untuk melihat riwayat terbaru.';
-
-                    alert('✅ Terapi berhasil diselesaikan!\n\nDurasi: ' + gmdate(duration) + '\nTotal Gerakan: ' + movementCount);
-
-                    setTimeout(() => {
-                        location.reload();
-                    }, 2000);
-                } else {
-                    alert('❌ Gagal menghentikan terapi: ' + result.message);
-                }
-            } catch (error) {
-                console.error('Error stopping therapy:', error);
-                alert('❌ Error: ' + error.message);
-            }
-        }
-
-        function updateDuration() {
-            if (!startTime) return;
-            
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            document.getElementById('durationText').textContent = gmdate(elapsed);
-        }
-
-        async function fetchTherapyData() {
+async function fetchTherapyData() {
     if (!therapyActive) return;
 
     try {
@@ -816,182 +914,310 @@ $conn->close();
         if (data.success && data.data.length > 0) {
             const latest = data.data[0];
             const currentPitch = parseFloat(latest.pitch);
+            const currentRoll = parseFloat(latest.roll);
+            const currentGyroZ = parseFloat(latest.gz);
+            const currentAccelY = parseFloat(latest.ayG);
 
-            // Update sensor values
-            document.getElementById('rollValue').textContent = parseFloat(latest.roll).toFixed(1);
+            document.getElementById('rollValue').textContent = currentRoll.toFixed(1);
             document.getElementById('pitchValue').textContent = currentPitch.toFixed(1);
-            document.getElementById('currentPitchDisplay').textContent = currentPitch.toFixed(1) + '°';
             document.getElementById('axValue').textContent = parseFloat(latest.axG).toFixed(2);
-            document.getElementById('ayValue').textContent = parseFloat(latest.ayG).toFixed(2);
+            document.getElementById('ayValue').textContent = currentAccelY.toFixed(2);
             document.getElementById('azValue').textContent = parseFloat(latest.azG).toFixed(2);
             document.getElementById('gxValue').textContent = parseFloat(latest.gx).toFixed(2);
             document.getElementById('gyValue').textContent = parseFloat(latest.gy).toFixed(2);
-            document.getElementById('gzValue').textContent = parseFloat(latest.gz).toFixed(2);
+            document.getElementById('gzValue').textContent = currentGyroZ.toFixed(2);
             
-            // Update detection status display - UPDATED untuk 90°
-            const detectionElement = document.getElementById('detectionStatus');
-            const deviationFrom90 = Math.abs(currentPitch - target90Degree);
-            
-            if (deviationFrom90 <= pitchThreshold) {
-                detectionElement.textContent = '✅ Posisi 90° Terdeteksi!';
-                detectionElement.style.color = '#28a745';
-            } else if (deviationFrom90 < 15) {
-                detectionElement.textContent = `⚠️ Mendekati 90° (${currentPitch.toFixed(1)}°)...`;
-                detectionElement.style.color = '#ffc107';
+            if (selectedTherapyType === 'rotation') {
+                document.getElementById('currentPitchDisplay').textContent = currentRoll.toFixed(1) + '° (Roll)';
+                updateRotationDetectionStatus(currentRoll);
+                detectRotationMovement(currentRoll);
+            } else if (selectedTherapyType === 'horizontal') {
+                document.getElementById('currentPitchDisplay').textContent = currentGyroZ.toFixed(1) + '°/s (Gyro Z)';
+                updateHorizontalDetectionStatus(currentGyroZ, currentAccelY);
+                detectHorizontalMovement(currentGyroZ, currentAccelY);
             } else {
-                detectionElement.textContent = '⏳ Menunggu gerakan...';
-                detectionElement.style.color = '#999';
+                document.getElementById('currentPitchDisplay').textContent = currentPitch.toFixed(1) + '° (Pitch)';
+                updateVerticalDetectionStatus(currentPitch);
+                detectVerticalMovement(currentPitch);
             }
 
-            // Update chart
             const time = new Date().toLocaleTimeString('id-ID');
             chart.data.labels.push(time);
-            chart.data.datasets[0].data.push(parseFloat(latest.roll));
+            chart.data.datasets[0].data.push(currentRoll);
             chart.data.datasets[1].data.push(currentPitch);
 
-            // Keep only last 20 points
             if (chart.data.labels.length > 20) {
                 chart.data.labels.shift();
                 chart.data.datasets[0].data.shift();
                 chart.data.datasets[1].data.shift();
             }
-
             chart.update('none');
 
-            // ==========================================
-            // DETEKSI GERAKAN PADA 90° (±7°)
-            // ==========================================
-            const currentTime = Date.now();
-            
-            if (previousPitch !== null) {
-                // Cek apakah pitch berada di sekitar 90 derajat (83° - 97°)
-                const isAt90 = deviationFrom90 <= pitchThreshold;
-                
-                // Cek apakah pitch sebelumnya tidak di 90° (untuk menghindari double count)
-                const wasNotAt90 = Math.abs(previousPitch - target90Degree) > pitchThreshold;
-                
-                // Cek cooldown untuk menghindari gerakan terlalu cepat terhitung
-                const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
-                
-                // Gerakan terdeteksi jika:
-                // 1. Pitch sekarang di 90° (±7°, range: 83°-97°)
-                // 2. Pitch sebelumnya tidak di 90° (transisi)
-                // 3. Cooldown sudah lewat
-                if (isAt90 && wasNotAt90 && cooldownPassed && !crossed90) {
-                    movementCount++;
-                    document.getElementById('movementCount').textContent = movementCount;
-                    
-                    // Visual feedback
-                    const countElement = document.getElementById('movementCount');
-                    countElement.style.color = '#28a745';
-                    countElement.style.transform = 'scale(1.3)';
-                    
-                    setTimeout(() => {
-                        countElement.style.color = '#667eea';
-                        countElement.style.transform = 'scale(1)';
-                    }, 300);
-                    
-                    crossed90 = true;
-                    lastMovementTime = currentTime;
-                    
-                    console.log(`✅ Gerakan terdeteksi! Total: ${movementCount} | Pitch: ${currentPitch.toFixed(2)}° (Target: 90°)`);
-                    
-                    // Play sound feedback
-                    playBeep();
-                }
-                
-                // Reset flag saat pitch menjauhi 90° (lebih dari threshold + buffer)
-                if (deviationFrom90 > pitchThreshold + 5) {
-                    crossed90 = false;
-                }
-            }
-            
-            // Simpan pitch sebelumnya
-            previousPitch = currentPitch;
-
-            // Save to therapy_movements
             await saveTherapyMovement(latest);
         }
     } catch (error) {
-        console.error('Error fetching therapy data:', error);
+        console.error('Error:', error);
     }
 
-    // Continue fetching
-    if (therapyActive) {
-        setTimeout(fetchTherapyData, 1000);
+    if (therapyActive) setTimeout(fetchTherapyData, 500);
+}
+
+function detectVerticalMovement(currentPitch) {
+    const currentTime = Date.now();
+    if (previousPitch !== null) {
+        const deviationFrom90 = Math.abs(currentPitch - targetVertical90);
+        const isAt90 = deviationFrom90 <= pitchThreshold;
+        const wasNotAt90 = Math.abs(previousPitch - targetVertical90) > pitchThreshold;
+        const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
+        
+        if (isAt90 && wasNotAt90 && cooldownPassed && !crossedVertical90) {
+            movementCount++;
+            document.getElementById('movementCount').textContent = movementCount;
+            visualFeedback();
+            crossedVertical90 = true;
+            lastMovementTime = currentTime;
+            console.log(`✅ VERTICAL #${movementCount} | Pitch: ${currentPitch.toFixed(2)}°`);
+            playBeep();
+        }
+        if (deviationFrom90 > pitchThreshold + 5) crossedVertical90 = false;
+    }
+    previousPitch = currentPitch;
+}
+
+function updateVerticalDetectionStatus(currentPitch) {
+    const detectionElement = document.getElementById('detectionStatus');
+    const deviation = Math.abs(currentPitch - targetVertical90);
+    if (deviation <= pitchThreshold) {
+        detectionElement.textContent = '✅ Posisi 90°!';
+        detectionElement.style.color = '#28a745';
+    } else if (deviation < 15) {
+        detectionElement.textContent = `⚠️ Mendekati (${currentPitch.toFixed(1)}°)`;
+        detectionElement.style.color = '#ffc107';
+    } else {
+        detectionElement.textContent = '⏳ Menunggu...';
+        detectionElement.style.color = '#999';
     }
 }
 
-        async function saveTherapyMovement(sensorData) {
-            if (!sessionId) return;
-
-            try {
-                await fetch('api/save_therapy_movement.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        session_id: sessionId,
-                        patient_id: patientId,
-                        axG: sensorData.axG,
-                        ayG: sensorData.ayG,
-                        azG: sensorData.azG,
-                        gx: sensorData.gx,
-                        gy: sensorData.gy,
-                        gz: sensorData.gz,
-                        roll: sensorData.roll,
-                        pitch: sensorData.pitch
-                    })
-                });
-            } catch (error) {
-                console.error('Error saving therapy movement:', error);
+function detectHorizontalMovement(currentGyroZ, currentAccelY) {
+    const currentTime = Date.now();
+    if (previousGyroZ !== null && previousAccelY !== null) {
+        const gyroZAbs = Math.abs(currentGyroZ);
+        const isMoving = gyroZAbs > gyroZThreshold;
+        const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
+        
+        let currentDirection = 'center';
+        if (isMoving) {
+            if (currentGyroZ > gyroZThreshold && currentAccelY > accelYThreshold) {
+                currentDirection = 'right';
+            } else if (currentGyroZ < -gyroZThreshold && currentAccelY < -accelYThreshold) {
+                currentDirection = 'left';
             }
-        }
-
-        function gmdate(seconds) {
-            const minutes = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         }
         
-        // Sound feedback untuk gerakan terdeteksi
-        function playBeep() {
-            try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioContext.createOscillator();
-                const gainNode = audioContext.createGain();
-                
-                oscillator.connect(gainNode);
-                gainNode.connect(audioContext.destination);
-                
-                oscillator.frequency.value = 800; // Frekuensi suara
-                oscillator.type = 'sine';
-                
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-                
-                oscillator.start(audioContext.currentTime);
-                oscillator.stop(audioContext.currentTime + 0.1);
-            } catch (error) {
-                console.log('Audio not supported');
-            }
+        switch(horizontalPhase) {
+            case 'waiting':
+                if (currentDirection === 'right') {
+                    horizontalPhase = 'moving_right';
+                    horizontalDirection = 'right';
+                } else if (currentDirection === 'left') {
+                    horizontalPhase = 'moving_left';
+                    horizontalDirection = 'left';
+                }
+                break;
+            case 'moving_right':
+                if (currentDirection === 'left' && cooldownPassed) {
+                    movementCount++;
+                    document.getElementById('movementCount').textContent = movementCount;
+                    visualFeedback();
+                    lastMovementTime = currentTime;
+                    horizontalPhase = 'moving_left';
+                    console.log(`✅ HORIZONTAL #${movementCount} | KANAN → KIRI`);
+                    playBeep();
+                } else if (currentDirection === 'center') horizontalPhase = 'waiting';
+                break;
+            case 'moving_left':
+                if (currentDirection === 'right' && cooldownPassed) {
+                    movementCount++;
+                    document.getElementById('movementCount').textContent = movementCount;
+                    visualFeedback();
+                    lastMovementTime = currentTime;
+                    horizontalPhase = 'moving_right';
+                    console.log(`✅ HORIZONTAL #${movementCount} | KIRI → KANAN`);
+                    playBeep();
+                } else if (currentDirection === 'center') horizontalPhase = 'waiting';
+                break;
         }
+    }
+    previousGyroZ = currentGyroZ;
+    previousAccelY = currentAccelY;
+}
 
-        // Resume therapy
-        document.getElementById('btnPause').addEventListener('click', function() {
-            if (this.textContent.includes('Resume')) {
-                therapyActive = true;
-                durationInterval = setInterval(updateDuration, 1000);
-                
-                document.getElementById('statusText').textContent = 'Aktif';
-                document.getElementById('statusText').style.color = '#28a745';
-                this.textContent = '⏸ Pause';
-                document.getElementById('therapyAlert').className = 'alert alert-success';
-                document.getElementById('therapyAlert').innerHTML = '✅ <strong>Terapi Dilanjutkan!</strong> Ikuti gerakan pada video dengan perlahan dan terkontrol.';
-                
-                fetchTherapyData();
-                console.log('▶️ Therapy resumed');
-            } else {
-                pauseTherapy();
-            }
+function updateHorizontalDetectionStatus(currentGyroZ, currentAccelY) {
+    const detectionElement = document.getElementById('detectionStatus');
+    const gyroZAbs = Math.abs(currentGyroZ);
+    if (gyroZAbs > gyroZThreshold) {
+        if (currentGyroZ > 0 && currentAccelY > accelYThreshold) {
+            detectionElement.textContent = '➡️ Ke KANAN';
+            detectionElement.style.color = '#28a745';
+        } else if (currentGyroZ < 0 && currentAccelY < -accelYThreshold) {
+            detectionElement.textContent = '⬅️ Ke KIRI';
+            detectionElement.style.color = '#28a745';
+        } else {
+            detectionElement.textContent = '🔄 Bergerak...';
+            detectionElement.style.color = '#ffc107';
+        }
+    } else {
+        detectionElement.textContent = '⏺️ CENTER';
+        detectionElement.style.color = '#17a2b8';
+    }
+}
+
+function detectRotationMovement(currentRoll) {
+    const currentTime = Date.now();
+    if (previousRoll !== null) {
+        const deviationFromRight = Math.abs(currentRoll - targetRollRight);
+        const deviationFromLeft = Math.abs(currentRoll - targetRollLeft);
+        const isAtRight = deviationFromRight <= rollThreshold;
+        const isAtLeft = deviationFromLeft <= rollThreshold;
+        const isAtCenter = Math.abs(currentRoll) < 30;
+        const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
+        
+        switch(rotationPhase) {
+            case 'waiting':
+                if (isAtRight) {
+                    rotationPhase = 'at_right';
+                    lastRotationPosition = 'right';
+                } else if (isAtLeft) {
+                    rotationPhase = 'at_left';
+                    lastRotationPosition = 'left';
+                }
+                break;
+            case 'at_right':
+                if (isAtLeft && cooldownPassed) {
+                    movementCount++;
+                    document.getElementById('movementCount').textContent = movementCount;
+                    visualFeedback();
+                    lastMovementTime = currentTime;
+                    rotationPhase = 'at_left';
+                    console.log(`✅ ROTATION #${movementCount} | KANAN → KIRI`);
+                    playBeep();
+                } else if (isAtCenter) rotationPhase = 'waiting';
+                break;
+            case 'at_left':
+                if (isAtRight && cooldownPassed) {
+                    movementCount++;
+                    document.getElementById('movementCount').textContent = movementCount;
+                    visualFeedback();
+                    lastMovementTime = currentTime;
+                    rotationPhase = 'at_right';
+                    console.log(`✅ ROTATION #${movementCount} | KIRI → KANAN`);
+                    playBeep();
+                } else if (isAtCenter) rotationPhase = 'waiting';
+                break;
+        }
+    }
+    previousRoll = currentRoll;
+}
+
+function updateRotationDetectionStatus(currentRoll) {
+    const detectionElement = document.getElementById('detectionStatus');
+    const deviationFromRight = Math.abs(currentRoll - targetRollRight);
+    const deviationFromLeft = Math.abs(currentRoll - targetRollLeft);
+    
+    if (deviationFromRight <= rollThreshold) {
+        detectionElement.textContent = '✅ KANAN (-90°)!';
+        detectionElement.style.color = '#28a745';
+    } else if (deviationFromLeft <= rollThreshold) {
+        detectionElement.textContent = '✅ KIRI (+90°)!';
+        detectionElement.style.color = '#28a745';
+    } else if (Math.abs(currentRoll) < 30) {
+        detectionElement.textContent = '⏺️ CENTER';
+        detectionElement.style.color = '#17a2b8';
+    } else if (currentRoll < 0 && deviationFromRight < 20) {
+        detectionElement.textContent = `⚠️ → KANAN (${currentRoll.toFixed(1)}°)`;
+        detectionElement.style.color = '#ffc107';
+    } else if (currentRoll > 0 && deviationFromLeft < 20) {
+        detectionElement.textContent = `⚠️ ← KIRI (${currentRoll.toFixed(1)}°)`;
+        detectionElement.style.color = '#ffc107';
+    } else {
+        detectionElement.textContent = '⏳ Menunggu...';
+        detectionElement.style.color = '#999';
+    }
+}
+
+async function saveTherapyMovement(sensorData) {
+    if (!sessionId) return;
+    try {
+        await fetch('api/save_therapy_movement.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                patient_id: patientId,
+                axG: sensorData.axG,
+                ayG: sensorData.ayG,
+                azG: sensorData.azG,
+                gx: sensorData.gx,
+                gy: sensorData.gy,
+                gz: sensorData.gz,
+                roll: sensorData.roll,
+                pitch: sensorData.pitch
+            })
         });
+    } catch (error) {
+        console.error('Error saving:', error);
+    }
+}
+
+function visualFeedback() {
+    const countElement = document.getElementById('movementCount');
+    countElement.style.color = '#28a745';
+    countElement.style.transform = 'scale(1.3)';
+    setTimeout(() => {
+        countElement.style.color = '#667eea';
+        countElement.style.transform = 'scale(1)';
+    }, 300);
+}
+
+function playBeep() {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (error) {
+        console.log('Audio not supported');
+    }
+}
+
+function gmdate(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+document.getElementById('btnPause').addEventListener('click', function() {
+    if (this.textContent.includes('Resume')) {
+        therapyActive = true;
+        durationInterval = setInterval(updateDuration, 1000);
+        document.getElementById('statusText').textContent = 'Aktif';
+        document.getElementById('statusText').style.color = '#28a745';
+        this.textContent = '⏸ Pause';
+        updateTherapyAlert('active');
+        fetchTherapyData();
+        console.log('▶️ Resumed');
+    } else {
+        pauseTherapy();
+    }
+});
+
+console.log('=== TRIPLE DETECTION SYSTEM READY ===');
     </script>
