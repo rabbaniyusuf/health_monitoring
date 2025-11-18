@@ -346,7 +346,7 @@ $conn->close();
     <script>
     // ==========================================
 // DETAIL TERAPI PAGE - MULTI DETECTION ANALYSIS
-// Support: Vertical, Horizontal, Rotation
+// Support: Vertical, Horizontal, Rotation (UPDATED)
 // ==========================================
 
 const movementsData = <?= json_encode($movements_array) ?>;
@@ -361,7 +361,7 @@ if (therapyType.toLowerCase().includes('rotasi') ||
     therapyType.toLowerCase().includes('putar') || 
     therapyType.toLowerCase().includes('pergelangan')) {
     detectionType = 'rotation';
-    console.log('🔄 Detection: ROTATION (Roll ±90°)');
+    console.log('🔄 Detection: ROTATION (Roll 90°)');
 } else if (therapyType.toLowerCase().includes('horizontal') || 
            therapyType.toLowerCase().includes('kanan') && therapyType.toLowerCase().includes('kiri')) {
     detectionType = 'horizontal';
@@ -413,77 +413,42 @@ if (detectionType === 'vertical') {
     });
     
 } else if (detectionType === 'rotation') {
-    // ========== ROTATION DETECTION (Roll ±90°) ==========
+    // ========== ROTATION DETECTION (Roll 90°) - UPDATED SIMPLE LOGIC ==========
     let previousRoll = null;
-    let rotationPhase = 'waiting'; // 'waiting', 'at_right', 'at_left'
     const rollThreshold = 7;
-    const targetRollRight = -90;
-    const targetRollLeft = 90;
+    const targetRoll90 = 90;
     
     movementsData.forEach((movement, index) => {
         const currentRoll = parseFloat(movement.roll);
         
         if (previousRoll !== null) {
-            const deviationFromRight = Math.abs(currentRoll - targetRollRight);
-            const deviationFromLeft = Math.abs(currentRoll - targetRollLeft);
-            const isAtRight = deviationFromRight <= rollThreshold;
-            const isAtLeft = deviationFromLeft <= rollThreshold;
-            const isAtCenter = Math.abs(currentRoll) < 30;
+            // Hitung deviasi dari 90° dan -90°
+            const deviationFromPositive90 = Math.abs(currentRoll - targetRoll90);
+            const deviationFromNegative90 = Math.abs(currentRoll - (-targetRoll90));
             
-            switch(rotationPhase) {
-                case 'waiting':
-                    if (isAtRight) {
-                        rotationPhase = 'at_right';
-                    } else if (isAtLeft) {
-                        rotationPhase = 'at_left';
-                    }
-                    break;
-                    
-                case 'at_right':
-                    if (isAtLeft) {
-                        // Gerakan KANAN → KIRI terdeteksi
-                        detectedMovements.push({
-                            index: movementIndex++,
-                            timestamp: movement.timestamp,
-                            roll: currentRoll,
-                            pitch: parseFloat(movement.pitch),
-                            axG: parseFloat(movement.axG),
-                            ayG: parseFloat(movement.ayG),
-                            azG: parseFloat(movement.azG),
-                            gx: parseFloat(movement.gx),
-                            gy: parseFloat(movement.gy),
-                            gz: parseFloat(movement.gz),
-                            type: 'rotation',
-                            direction: 'right_to_left'
-                        });
-                        rotationPhase = 'at_left';
-                    } else if (isAtCenter) {
-                        rotationPhase = 'waiting';
-                    }
-                    break;
-                    
-                case 'at_left':
-                    if (isAtRight) {
-                        // Gerakan KIRI → KANAN terdeteksi
-                        detectedMovements.push({
-                            index: movementIndex++,
-                            timestamp: movement.timestamp,
-                            roll: currentRoll,
-                            pitch: parseFloat(movement.pitch),
-                            axG: parseFloat(movement.axG),
-                            ayG: parseFloat(movement.ayG),
-                            azG: parseFloat(movement.azG),
-                            gx: parseFloat(movement.gx),
-                            gy: parseFloat(movement.gy),
-                            gz: parseFloat(movement.gz),
-                            type: 'rotation',
-                            direction: 'left_to_right'
-                        });
-                        rotationPhase = 'at_right';
-                    } else if (isAtCenter) {
-                        rotationPhase = 'waiting';
-                    }
-                    break;
+            // Cek apakah Roll berada di sekitar 90° atau -90°
+            const isAt90 = deviationFromPositive90 <= rollThreshold || deviationFromNegative90 <= rollThreshold;
+            
+            // Cek apakah Roll sebelumnya tidak di 90°
+            const wasNotAt90 = (Math.abs(previousRoll - targetRoll90) > rollThreshold) && 
+                              (Math.abs(previousRoll - (-targetRoll90)) > rollThreshold);
+            
+            if (isAt90 && wasNotAt90) {
+                const position = deviationFromPositive90 <= rollThreshold ? '+90°' : '-90°';
+                detectedMovements.push({
+                    index: movementIndex++,
+                    timestamp: movement.timestamp,
+                    roll: currentRoll,
+                    pitch: parseFloat(movement.pitch),
+                    axG: parseFloat(movement.axG),
+                    ayG: parseFloat(movement.ayG),
+                    azG: parseFloat(movement.azG),
+                    gx: parseFloat(movement.gx),
+                    gy: parseFloat(movement.gy),
+                    gz: parseFloat(movement.gz),
+                    type: 'rotation',
+                    position: position
+                });
             }
         }
         previousRoll = currentRoll;
@@ -493,7 +458,7 @@ if (detectionType === 'vertical') {
     // ========== HORIZONTAL DETECTION (Gyro Z + Accel Y) ==========
     let previousGyroZ = null;
     let previousAccelY = null;
-    let horizontalPhase = 'waiting'; // 'waiting', 'moving_right', 'moving_left'
+    let horizontalPhase = 'waiting';
     const gyroZThreshold = 50;
     const accelYThreshold = 0.3;
     
@@ -525,7 +490,6 @@ if (detectionType === 'vertical') {
                     
                 case 'moving_right':
                     if (currentDirection === 'left') {
-                        // Gerakan KANAN → KIRI terdeteksi
                         detectedMovements.push({
                             index: movementIndex++,
                             timestamp: movement.timestamp,
@@ -548,7 +512,6 @@ if (detectionType === 'vertical') {
                     
                 case 'moving_left':
                     if (currentDirection === 'right') {
-                        // Gerakan KIRI → KANAN terdeteksi
                         detectedMovements.push({
                             index: movementIndex++,
                             timestamp: movement.timestamp,
@@ -676,9 +639,7 @@ const movementChart = new Chart(ctx, {
                     },
                     afterLabel: function(context) {
                         const movement = detectedMovements[context.dataIndex];
-                        let extraInfo = [
-                            '─────────────────'
-                        ];
+                        let extraInfo = ['─────────────────'];
                         
                         if (detectionType === 'vertical') {
                             extraInfo.push(
@@ -695,10 +656,10 @@ const movementChart = new Chart(ctx, {
                             extraInfo.push(
                                 'Roll: ' + movement.roll.toFixed(2) + '°',
                                 'Pitch: ' + movement.pitch.toFixed(2) + '°',
-                                'Direction: ' + (movement.direction === 'right_to_left' ? 'Kanan → Kiri' : 'Kiri → Kanan'),
+                                'Posisi: ' + movement.position,
                                 '─────────────────',
-                                'Kanan: -90° (±7°)',
-                                'Kiri: +90° (±7°)'
+                                'Target: ±90° (±7°)',
+                                'Deteksi setiap mencapai 90°'
                             );
                         } else if (detectionType === 'horizontal') {
                             extraInfo.push(
@@ -757,13 +718,13 @@ if (alertDiv) {
     } else if (detectionType === 'rotation') {
         detectionInfo = `
             ℹ️ <strong>Keterangan:</strong> Grafik ini menampilkan data Roll & Pitch hanya pada saat gerakan rotasi terdeteksi 
-            (ketika Roll mencapai <strong>-90° (kanan)</strong> atau <strong>+90° (kiri)</strong> dengan toleransi ±7°). 
+            (ketika Roll mencapai <strong>90° atau -90°</strong> dengan toleransi ±7°). 
             <br><br>
-            Setiap titik pada grafik merepresentasikan 1 gerakan rotasi penuh (dari kanan ke kiri atau kiri ke kanan).
+            Setiap titik pada grafik merepresentasikan 1 gerakan yang tercatat ketika pergelangan tangan diputar hingga mencapai posisi 90°.
             <br><br>
-            <strong>🎯 Target Kanan:</strong> Roll = -90° (range: -83° s/d -97°)<br>
-            <strong>🎯 Target Kiri:</strong> Roll = +90° (range: 83° s/d 97°)<br>
-            <strong>✅ Gerakan Terdeteksi:</strong> Saat roll berpindah dari satu posisi ekstrem ke posisi ekstrem lainnya
+            <strong>🎯 Target:</strong> Roll = ±90° (range: 83° s/d 97° atau -83° s/d -97°)<br>
+            <strong>✅ Gerakan Terdeteksi:</strong> Setiap kali roll mencapai 90° (positif atau negatif) akan terhitung 1 gerakan<br>
+            <strong>📊 Logika:</strong> Deteksi sederhana - setiap crossing ke 90° = 1 gerakan
         `;
     } else if (detectionType === 'horizontal') {
         detectionInfo = `
@@ -791,45 +752,36 @@ async function exportMovementChartPDF() {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     
-    // Title
     pdf.setFontSize(18);
     pdf.text('Laporan Grafik Gerakan Terdeteksi', pageWidth / 2, 15, { align: 'center' });
     
-    // Session Info
     pdf.setFontSize(12);
     pdf.text('<?= $session['nama'] ?>', pageWidth / 2, 25, { align: 'center' });
     pdf.text('<?= $session['therapy_type'] ?>', pageWidth / 2, 32, { align: 'center' });
     pdf.text('Tanggal: <?= date('d/m/Y H:i', strtotime($session['start_time'])) ?>', pageWidth / 2, 39, { align: 'center' });
     
-    // Detection Type Info
     let detectionTypeText = detectionType === 'vertical' ? 'VERTICAL (Pitch -90°)' :
-                           detectionType === 'rotation' ? 'ROTATION (Roll ±90°)' :
+                           detectionType === 'rotation' ? 'ROTATION (Roll 90°)' :
                            'HORIZONTAL (Gyro Z + Accel Y)';
     pdf.text('Jenis Deteksi: ' + detectionTypeText, pageWidth / 2, 46, { align: 'center' });
     
-    // Chart
     const canvas = document.getElementById('movementChart');
     const imgData = canvas.toDataURL('image/png', 1.0);
-    
     const imgWidth = pageWidth - 30;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    
     pdf.addImage(imgData, 'PNG', 15, 52, imgWidth, imgHeight);
     
-    // Summary at bottom
     const yPosition = 52 + imgHeight + 10;
     pdf.setFontSize(11);
     pdf.text('Total Gerakan Terdeteksi: ' + detectedMovements.length + ' gerakan', 15, yPosition);
     pdf.text('Durasi Terapi: <?= gmdate("i:s", $session['duration']) ?> menit', 15, yPosition + 7);
     pdf.text('Total Data Points: <?= $stats['total_data'] ?>', 15, yPosition + 14);
     
-    // Add data table on new page if there are movements
     if (detectedMovements.length > 0) {
         pdf.addPage();
         pdf.setFontSize(14);
         pdf.text('Data Detail Gerakan Terdeteksi', pageWidth / 2, 15, { align: 'center' });
         
-        // Table headers
         pdf.setFontSize(10);
         let yPos = 25;
         const colWidths = [15, 50, 30, 30, 30, 30, 30];
@@ -847,7 +799,6 @@ async function exportMovementChartPDF() {
             xPos += colWidths[i];
         });
         
-        // Table data
         yPos += 7;
         detectedMovements.forEach((movement, index) => {
             if (yPos > pageHeight - 20) {
@@ -890,28 +841,16 @@ async function exportMovementChartPDF() {
         });
     }
     
-    // Footer
     const pageCount = pdf.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
         pdf.setPage(i);
         pdf.setFontSize(9);
-        pdf.text(
-            'Export Date: ' + new Date().toLocaleString('id-ID'),
-            pageWidth - 15,
-            pageHeight - 10,
-            { align: 'right' }
-        );
-        pdf.text(
-            'Page ' + i + ' of ' + pageCount,
-            15,
-            pageHeight - 10
-        );
+        pdf.text('Export Date: ' + new Date().toLocaleString('id-ID'), pageWidth - 15, pageHeight - 10, { align: 'right' });
+        pdf.text('Page ' + i + ' of ' + pageCount, 15, pageHeight - 10);
     }
     
-    // Save PDF
     const filename = 'gerakan_terdeteksi_<?= str_replace(' ', '_', $session['nama']) ?>_<?= date('Ymd', strtotime($session['start_time'])) ?>.pdf';
     pdf.save(filename);
-    
     alert('✅ PDF berhasil di-download!');
 }
 

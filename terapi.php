@@ -597,7 +597,7 @@ $conn->close();
 // THERAPY PAGE - TRIPLE DETECTION SYSTEM
 // 1. Vertical (Pitch -90°) - Mengangkat lengan
 // 2. Horizontal (Gyro Z) - Kanan ke Kiri
-// 3. Rotation (Roll ±90°) - Rotasi pergelangan tangan
+// 3. Rotation (Roll 90°) - Rotasi pergelangan tangan [UPDATED]
 // ==========================================
 
 const patientId = <?= $patient_id ?>;
@@ -630,14 +630,12 @@ let accelYThreshold = 0.3;
 let horizontalPhase = 'waiting';
 
 // ==========================================
-// ROTATION MOVEMENT DETECTION VARIABLES (Roll ±90°)
+// ROTATION MOVEMENT DETECTION VARIABLES (Roll 90°) - UPDATED
 // ==========================================
 let previousRoll = null;
-let lastRotationPosition = 'center';
-let rollThreshold = 7;
-let targetRollRight = -90;
-let targetRollLeft = 90;
-let rotationPhase = 'waiting';
+let crossedRotation90 = false;
+let rollThreshold = 7; // Toleransi ±7 derajat
+let targetRoll90 = 90; // Target Roll = 90° (bisa positif atau negatif)
 
 // ==========================================
 // GENERAL VARIABLES
@@ -717,7 +715,7 @@ function changeVideo() {
         selectedVideoTitle.toLowerCase().includes('putar') || 
         selectedVideoTitle.toLowerCase().includes('pergelangan')) {
         selectedTherapyType = 'rotation';
-        console.log('🔄 Therapy type: ROTATION (Roll ±90°)');
+        console.log('🔄 Therapy type: ROTATION (Roll 90°)');
     } else if (selectedVideoTitle.toLowerCase().includes('horizontal') || 
                selectedVideoTitle.toLowerCase().includes('kanan') && selectedVideoTitle.toLowerCase().includes('kiri')) {
         selectedTherapyType = 'horizontal';
@@ -738,9 +736,9 @@ function changeVideo() {
     let detectionInfo = '';
     if (selectedTherapyType === 'rotation') {
         detectionInfo = `<br><br><strong>🔄 Deteksi Gerakan Rotasi:</strong>
-        <br>• Posisi Kanan: Roll = -90° (±7°)
-        <br>• Posisi Kiri: Roll = +90° (±7°)
-        <br>• 1 Gerakan = Putar dari Kanan → Kiri atau Kiri → Kanan`;
+        <br>• Target: Roll = 90° (±7°, range: 83° sampai 97°)
+        <br>• 1 Gerakan = Setiap kali Roll mencapai 90° (positif atau negatif)
+        <br>• Cocok untuk: Rotasi pergelangan tangan melingkar`;
     } else if (selectedTherapyType === 'horizontal') {
         detectionInfo = `<br><br><strong>↔️ Deteksi Gerakan Horizontal:</strong>
         <br>• Menggunakan Gyroscope Z dan Accelerometer Y
@@ -766,8 +764,9 @@ function updateTherapyAlert(state) {
         if (selectedTherapyType === 'rotation') {
             alertElement.className = 'alert alert-info';
             alertElement.innerHTML = `<strong>Tips:</strong> Pastikan sensor MPU6050 terpasang di pergelangan tangan.
-            <br><br><strong>🔄 Deteksi Gerakan Rotasi:</strong> Roll -90° (kanan) dan +90° (kiri).
-            <br><strong>🎯 Range:</strong> Kanan -83° s/d -97° | Kiri 83° s/d 97°`;
+            <br><br><strong>🔄 Deteksi Gerakan Rotasi:</strong> Gerakan akan terhitung setiap kali Roll mencapai <strong>90°</strong> (positif atau negatif).
+            <br><strong>🎯 Range:</strong> 83° sampai 97° (toleransi ±7°)
+            <br><br>Putar pergelangan tangan melingkar, setiap putaran yang mencapai 90° akan terhitung sebagai 1 gerakan.`;
         } else if (selectedTherapyType === 'horizontal') {
             alertElement.className = 'alert alert-info';
             alertElement.innerHTML = `<strong>Tips:</strong> Pastikan sensor MPU6050 terpasang di pergelangan tangan.
@@ -780,7 +779,7 @@ function updateTherapyAlert(state) {
         }
     } else if (state === 'active') {
         alertElement.className = 'alert alert-success';
-        const msg = selectedTherapyType === 'rotation' ? 'Putar pergelangan tangan melingkar.' :
+        const msg = selectedTherapyType === 'rotation' ? 'Putar pergelangan tangan, setiap mencapai 90° terhitung 1 gerakan.' :
                     selectedTherapyType === 'horizontal' ? 'Gerakkan tangan kanan-kiri horizontal.' :
                     'Angkat lengan hingga vertikal.';
         alertElement.innerHTML = `✅ <strong>Terapi Dimulai!</strong> ${msg}`;
@@ -822,8 +821,8 @@ async function startTherapy() {
             
             if (selectedTherapyType === 'rotation') {
                 previousRoll = null;
-                lastRotationPosition = 'center';
-                rotationPhase = 'waiting';
+                crossedRotation90 = false;
+                console.log('🔄 Rotation detection initialized (Roll 90°)');
             } else if (selectedTherapyType === 'horizontal') {
                 previousGyroZ = null;
                 previousAccelY = null;
@@ -1073,75 +1072,73 @@ function updateHorizontalDetectionStatus(currentGyroZ, currentAccelY) {
     }
 }
 
+// ==========================================
+// ROTATION MOVEMENT DETECTION (Roll 90°) - UPDATED LOGIC
+// ==========================================
 function detectRotationMovement(currentRoll) {
     const currentTime = Date.now();
+    
     if (previousRoll !== null) {
-        const deviationFromRight = Math.abs(currentRoll - targetRollRight);
-        const deviationFromLeft = Math.abs(currentRoll - targetRollLeft);
-        const isAtRight = deviationFromRight <= rollThreshold;
-        const isAtLeft = deviationFromLeft <= rollThreshold;
-        const isAtCenter = Math.abs(currentRoll) < 30;
+        // Hitung deviasi dari 90° (bisa positif atau negatif)
+        const deviationFromPositive90 = Math.abs(currentRoll - targetRoll90); // 90°
+        const deviationFromNegative90 = Math.abs(currentRoll - (-targetRoll90)); // -90°
+        
+        // Cek apakah Roll berada di sekitar 90° atau -90° (dengan threshold ±7°)
+        const isAt90 = deviationFromPositive90 <= rollThreshold || deviationFromNegative90 <= rollThreshold;
+        
+        // Cek apakah Roll sebelumnya tidak di 90° (untuk menghindari double count)
+        const wasNotAt90 = (Math.abs(previousRoll - targetRoll90) > rollThreshold) && 
+                          (Math.abs(previousRoll - (-targetRoll90)) > rollThreshold);
+        
+        // Cek cooldown untuk menghindari gerakan terlalu cepat terhitung
         const cooldownPassed = (currentTime - lastMovementTime) > movementCooldown;
         
-        switch(rotationPhase) {
-            case 'waiting':
-                if (isAtRight) {
-                    rotationPhase = 'at_right';
-                    lastRotationPosition = 'right';
-                } else if (isAtLeft) {
-                    rotationPhase = 'at_left';
-                    lastRotationPosition = 'left';
-                }
-                break;
-            case 'at_right':
-                if (isAtLeft && cooldownPassed) {
-                    movementCount++;
-                    document.getElementById('movementCount').textContent = movementCount;
-                    visualFeedback();
-                    lastMovementTime = currentTime;
-                    rotationPhase = 'at_left';
-                    console.log(`✅ ROTATION #${movementCount} | KANAN → KIRI`);
-                    playBeep();
-                } else if (isAtCenter) rotationPhase = 'waiting';
-                break;
-            case 'at_left':
-                if (isAtRight && cooldownPassed) {
-                    movementCount++;
-                    document.getElementById('movementCount').textContent = movementCount;
-                    visualFeedback();
-                    lastMovementTime = currentTime;
-                    rotationPhase = 'at_right';
-                    console.log(`✅ ROTATION #${movementCount} | KIRI → KANAN`);
-                    playBeep();
-                } else if (isAtCenter) rotationPhase = 'waiting';
-                break;
+        // Gerakan terdeteksi jika:
+        // 1. Roll sekarang di 90° atau -90° (±7°)
+        // 2. Roll sebelumnya tidak di 90° atau -90° (transisi)
+        // 3. Cooldown sudah lewat
+        // 4. Flag crossedRotation90 belum aktif
+        if (isAt90 && wasNotAt90 && cooldownPassed && !crossedRotation90) {
+            movementCount++;
+            document.getElementById('movementCount').textContent = movementCount;
+            visualFeedback();
+            crossedRotation90 = true;
+            lastMovementTime = currentTime;
+            
+            const position = deviationFromPositive90 <= rollThreshold ? '+90°' : '-90°';
+            console.log(`✅ ROTATION #${movementCount} | Roll: ${currentRoll.toFixed(2)}° (Target: ${position})`);
+            playBeep();
+        }
+        
+        // Reset flag saat Roll menjauhi 90° dan -90° (lebih dari threshold + buffer)
+        if (deviationFromPositive90 > rollThreshold + 10 && deviationFromNegative90 > rollThreshold + 10) {
+            crossedRotation90 = false;
         }
     }
+    
     previousRoll = currentRoll;
 }
 
 function updateRotationDetectionStatus(currentRoll) {
     const detectionElement = document.getElementById('detectionStatus');
-    const deviationFromRight = Math.abs(currentRoll - targetRollRight);
-    const deviationFromLeft = Math.abs(currentRoll - targetRollLeft);
+    const deviationFromPositive90 = Math.abs(currentRoll - targetRoll90);
+    const deviationFromNegative90 = Math.abs(currentRoll - (-targetRoll90));
     
-    if (deviationFromRight <= rollThreshold) {
-        detectionElement.textContent = '✅ KANAN (-90°)!';
+    // Cek posisi terdekat (90° atau -90°)
+    if (deviationFromPositive90 <= rollThreshold) {
+        detectionElement.textContent = '✅ Posisi +90° Terdeteksi!';
         detectionElement.style.color = '#28a745';
-    } else if (deviationFromLeft <= rollThreshold) {
-        detectionElement.textContent = '✅ KIRI (+90°)!';
+    } else if (deviationFromNegative90 <= rollThreshold) {
+        detectionElement.textContent = '✅ Posisi -90° Terdeteksi!';
         detectionElement.style.color = '#28a745';
-    } else if (Math.abs(currentRoll) < 30) {
-        detectionElement.textContent = '⏺️ CENTER';
-        detectionElement.style.color = '#17a2b8';
-    } else if (currentRoll < 0 && deviationFromRight < 20) {
-        detectionElement.textContent = `⚠️ → KANAN (${currentRoll.toFixed(1)}°)`;
+    } else if (deviationFromPositive90 < 15) {
+        detectionElement.textContent = `⚠️ Mendekati +90° (${currentRoll.toFixed(1)}°)...`;
         detectionElement.style.color = '#ffc107';
-    } else if (currentRoll > 0 && deviationFromLeft < 20) {
-        detectionElement.textContent = `⚠️ ← KIRI (${currentRoll.toFixed(1)}°)`;
+    } else if (deviationFromNegative90 < 15) {
+        detectionElement.textContent = `⚠️ Mendekati -90° (${currentRoll.toFixed(1)}°)...`;
         detectionElement.style.color = '#ffc107';
     } else {
-        detectionElement.textContent = '⏳ Menunggu...';
+        detectionElement.textContent = '⏳ Menunggu gerakan...';
         detectionElement.style.color = '#999';
     }
 }
@@ -1220,4 +1217,5 @@ document.getElementById('btnPause').addEventListener('click', function() {
 });
 
 console.log('=== TRIPLE DETECTION SYSTEM READY ===');
+console.log('✅ Rotation: Simple 90° detection (±7°)');
     </script>
